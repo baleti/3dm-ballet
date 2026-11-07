@@ -19,3 +19,15 @@ def test_adapter_rejects_hang_bytes():
     a = Dm3Adapter(); buf = open(HANG, 'rb').read()
     assert a.sniff(buf) is None
     with pytest.raises(Exception): a.validate(buf)
+
+def test_source_modified_during_edit_refused(tmp_path):
+    import glob
+    src = sorted(glob.glob(os.path.join(HERE, 'data', 'V8-*.3dm')))[0]
+    f = tmp_path / 'a.3dm'; f.write_bytes(open(src, 'rb').read())
+    def edit(m):
+        m.Layers[0].Name = 'zz_renamed'
+        with open(str(f), 'ab') as h: h.write(b'\0')   # someone else touches the file mid-edit
+    with pytest.raises(write.Refused, match='changed'):
+        write.edit_file(str(f), edit, lambda d: True)
+    assert f.read_bytes().endswith(b'\0') and not os.path.exists(str(f) + '.bak')
+    assert [p.name for p in tmp_path.iterdir()] == ['a.3dm']

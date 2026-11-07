@@ -76,6 +76,7 @@ def edit_file(path, edit, expect, backup=True):
     Original is replaced only if every check passes. Returns list of diffs applied."""
     try: probe.probe(path)
     except probe.Unreadable as e: raise Refused(str(e))
+    st0 = os.stat(path); sig0 = (st0.st_size, st0.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest())
     m = R.File3dm.Read(path)
     if m is None: raise Refused('unreadable')
     why = gate(m)
@@ -85,12 +86,17 @@ def edit_file(path, edit, expect, backup=True):
     d = os.path.dirname(os.path.abspath(path)); fd, tmp = tempfile.mkstemp(suffix='.3dm', dir=d); os.close(fd)
     try:
         if not m.Write(tmp, ver): raise Refused('write failed')
+        try: probe.probe(tmp)
+        except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
         if m2 is None: raise Refused('output unreadable')
         after = snapshot(m2)
         if after['version'] != before['version']: raise Refused('archive version changed')
         ds = diff(before, after)
         if not expect(ds): raise Refused('unexpected differences: %s' % ds[:5])
+        st1 = os.stat(path)
+        if (st1.st_size, st1.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest()) != sig0:
+            raise Refused('source changed during edit; refusing to overwrite')
         if backup: shutil.copy2(path, path + '.bak')
         os.replace(tmp, path)
         return ds
