@@ -64,6 +64,34 @@ def _geom_vt(g):
         else: out.append(r)
     return out, partial
 
+_MARKER_TYPES = ('Point', 'TextDot', 'PointSet', 'PointCloud')
+
+def _markers(g, ot, h):
+    """3-axis crosses (as line strips) at point-like geometry; PointCloud capped at 2000 points"""
+    try:
+        if ot == 'PointCloud':
+            n = g.Count; step = max(1, n // 2000)
+            pts = [g[i] if hasattr(g, '__getitem__') else None for i in range(0, n, step)]
+            pts = [(p.X, p.Y, p.Z) for p in pts if p is not None]
+        else:
+            c = g.GetBoundingBox().Center; pts = [(c.X, c.Y, c.Z)]
+    except Exception:
+        return []
+    out = []
+    for x, y, z in pts:
+        for d in ((h, 0, 0), (0, h, 0), (0, 0, h)):
+            out.append(np.array([(x - d[0], y - d[1], z - d[2]), (x + d[0], y + d[1], z + d[2])], float))
+    return out
+
+def _msize(m):
+    d = 0.0
+    for o in m.Objects:
+        try:
+            if o.Geometry is not None and str(o.Geometry.ObjectType).split('.')[-1] not in _MARKER_TYPES:
+                d = max(d, o.Geometry.GetBoundingBox().Diagonal.Length)
+        except Exception: pass
+    return (d if d > 0 else 100.0) * 0.004
+
 def _wire(g, n=24):
     """polyline samples for curves and (edge fallback) breps; list of Nx3 arrays"""
     ot = str(g.ObjectType).split('.')[-1]
@@ -115,6 +143,7 @@ def to_glb(path, out):
     yup = lambda v: np.c_[v[:, 0], v[:, 2], -v[:, 1]] * sc
     layer_col = {i: l.Color for i, l in enumerate(m.Layers)}
     batches = {}; st = collections.Counter()
+    msize = _msize(m)
     by_id = {}; idefs = {}
     for o in m.Objects:
         try: by_id[str(o.Attributes.Id)] = o
@@ -145,7 +174,7 @@ def to_glb(path, out):
         for v, t in vt:
             _add(batches, (li, col, 4), T(v), t.ravel(), oi, yup); st['meshed'] += 1
         if not vt or partial:
-            w = _wire(g)
+            w = _wire(g) if ot not in _MARKER_TYPES else _markers(g, ot, msize)
             for p in w:
                 idx = np.array([(i, i + 1) for i in range(len(p) - 1)]).ravel()
                 _add(batches, (li, col, 1), T(p), idx, oi, yup)

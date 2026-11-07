@@ -19,3 +19,7 @@ def test_degenerate():
 def test_brep_samples_now_meshed(tmp_path):
     st = reader.to_glb('tests/data/V2-v2_DeformCubes.3dm', str(tmp_path / 'a.glb'))
     assert st['meshed'] >= 6
+
+def test_points_become_markers(tmp_path):
+    st = reader.to_glb('tests/data/V2-v2_23_points.3dm', str(tmp_path / 'p.glb'))
+    assert st.get('wire', 0) >= 23 and not any(k.startswith('skipped_Point') for k in st)
