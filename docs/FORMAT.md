@@ -46,3 +46,9 @@ then Brep tessellation, SubD, Annotation text.
   arrays are equal), so meshes and curves use structural fingerprints.
 - Not covered by the snapshot yet: user strings/user data, views, render content details, SubD beyond Encode hash. Final oracle
   (Rhino opening the output) is unavailable offline; overwrite of originals must stay off until that exists.
+
+## Robustness findings (2026-11-07)
+- rhino3dm `File3dm.Read` can loop forever on corrupt input (found by byte-flip/zero fuzz of V5-V8 samples: 6 of 60 cases).
+  All reads therefore go through `tm3dballet/probe.py` (throwaway subprocess, timeout) before any in-process read; hostile
+  files are refused, never hang a viewer or a save. Regression file: tests/regress/hang_v7_surfaces_zeroed.3dm.
+- Fuzz harness: `python3 tests/fuzz_3dm.py [N]` (each case isolated in a subprocess).
