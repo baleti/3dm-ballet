@@ -35,3 +35,11 @@ def test_noedit_roundtrip_equivalent(f, tmp_path):
     if not m.Write(o, m.ArchiveVersion if m.ArchiveVersion in (50, 60, 70, 80) else 70): pytest.skip('write refused for version %s' % m.ArchiveVersion)
     a, b = reader.info(f), reader.info(o)
     for k in ('objects', 'types', 'layers', 'materials', 'groups', 'instance_definitions'): assert a[k] == b[k], k
+
+def test_material_transparency(tmp_path):
+    import json, struct
+    from tm3dballet import reader
+    out = tmp_path / 'm.glb'
+    reader.to_glb('tests/data/V2-v2_my_mesh_with_material.3dm', str(out))
+    b = out.read_bytes(); jl = struct.unpack('<I', b[12:16])[0]; j = json.loads(b[20:20 + jl])
+    assert any(m['pbrMetallicRoughness']['baseColorFactor'][3] == 0.8 for m in j['materials'])

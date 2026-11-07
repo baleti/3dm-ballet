@@ -65,6 +65,18 @@ def _wire(g, n=24):
 
 MAX_DEPTH = 16
 
+def _material_col(m, a, lay, col):
+    """diffuse colour and transparency from the object (or layer) render material, if any"""
+    try:
+        src = str(a.MaterialSource).split('.')[-1]
+        idx = a.MaterialIndex if src == 'MaterialFromObject' else (lay.RenderMaterialIndex if src == 'MaterialFromLayer' and lay is not None else -1)
+        if 0 <= idx < len(m.Materials):
+            mt = m.Materials[idx]; d = mt.DiffuseColor
+            return (d[0] / 255, d[1] / 255, d[2] / 255, max(0.05, min(1.0, 1.0 - float(mt.Transparency))))
+    except Exception:
+        pass
+    return col
+
 def _mat(t):
     return np.array(t.ToFloatArray(True), float).reshape(4, 4)
 
@@ -102,6 +114,7 @@ def to_glb(path, out):
             return
         c = a.ObjectColor if int(a.ColorSource) == 1 else (lay.Color if lay is not None else (200, 200, 200, 255))
         col = (c[0] / 255, c[1] / 255, c[2] / 255, 1.0)
+        col = _material_col(m, a, lay, col)
         T = (lambda v: v) if xf is None else (lambda v: v @ xf[:3, :3].T + xf[:3, 3])
         meshes = _geom_meshes(g)
         if meshes:
