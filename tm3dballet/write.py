@@ -3,6 +3,7 @@ Gate: refuse on anything the library may drop (unreadable objects, plug-in data)
 re-read it, require snapshot equality except for the intended edit, keep a backup, replace atomically."""
 import hashlib, json, os, shutil, tempfile
 import rhino3dm as R
+from . import probe
 
 class Refused(Exception): pass
 
@@ -73,6 +74,8 @@ def gate(m):
 def edit_file(path, edit, expect, backup=True):
     """edit(model) mutates the model; expect(diffs) -> True when the diffs are exactly the intended ones.
     Original is replaced only if every check passes. Returns list of diffs applied."""
+    try: probe.probe(path)
+    except probe.Unreadable as e: raise Refused(str(e))
     m = R.File3dm.Read(path)
     if m is None: raise Refused('unreadable')
     why = gate(m)

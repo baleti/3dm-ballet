@@ -3,12 +3,18 @@ Snapshot keys: 'obj:<id>', one key per table/setting. Gate name: format '3dm', v
 Overwrite of originals stays behind savegate's two gates (Config.allow_overwrite and the oracle gate file)."""
 import hashlib, os, tempfile
 import rhino3dm as R
-from . import write
+from . import write, probe
 
 MAGIC = b'3D Geometry File Format '
 WRITABLE = ('v50', 'v60', 'v70', 'v80')
 
 def _model(buf):
+    import os, tempfile
+    fd, tmp = tempfile.mkstemp(suffix='.3dm'); os.close(fd)
+    try:
+        open(tmp, 'wb').write(bytes(buf)); probe.probe(tmp)
+    finally:
+        os.unlink(tmp)
     m = R.File3dm.FromByteArray(bytes(buf))
     if m is None: raise ValueError('unreadable 3dm')
     return m

@@ -1,7 +1,7 @@
 """Reader: contents summary and mesh extraction for .3dm via rhino3dm (openNURBS)."""
 import collections
 import numpy as np
-from . import glb, tess
+from . import glb, tess, probe
 import rhino3dm as R
 
 # metres per model unit (subset; others fall back to 1.0 and are reported)
@@ -9,6 +9,7 @@ _UNITS = {'None': 1.0, 'Millimeters': .001, 'Centimeters': .01, 'Meters': 1.0, '
           'Inches': .0254, 'Feet': .3048, 'Yards': .9144, 'Miles': 1609.344}
 
 def load(path):
+    probe.probe(path)
     m = R.File3dm.Read(path)
     if m is None: raise ValueError('not a readable .3dm file: %s' % path)
     return m
