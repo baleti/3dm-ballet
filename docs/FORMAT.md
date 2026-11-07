@@ -36,3 +36,13 @@ gap proves it necessary.
 ## Record types to decode first
 Mesh, Brep face meshes, Curves (done as wire), Extrusion, InstanceReference (blocks), Layer visibility/colour, Material colour,
 then Brep tessellation, SubD, Annotation text.
+
+## Write gate findings (tm3dballet/write.py, 2026-11-07)
+- rhino3dm rewrites the whole file; identity is checked by a semantic snapshot (object ids, structural geometry fingerprints,
+  attributes, layers, materials, block definitions, plug-in data list, RDK xml) of the input vs the re-read output.
+- Archive versions 1 to 4 are refused: writing V2 converts PolyCurve to NurbsCurve (same shape, different representation).
+- Public samples: 33 writable (V5 to V8) plus 20 extra; 2 are caught as lossy (V5 example_file annotation changes, V7
+  rhino_logo_annotations drops one opaque plug-in data block). Encode() bytes are NOT canonical (meshes differ although all
+  arrays are equal), so meshes and curves use structural fingerprints.
+- Not covered by the snapshot yet: user strings/user data, views, render content details, SubD beyond Encode hash. Final oracle
+  (Rhino opening the output) is unavailable offline; overwrite of originals must stay off until that exists.
