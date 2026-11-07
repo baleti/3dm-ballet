@@ -65,6 +65,14 @@ def _wire(g, n=24):
 
 MAX_DEPTH = 16
 
+def layer_visible(m, lay):
+    """persistent visibility of a layer and all its ancestors (cycle-safe)"""
+    ids = {str(getattr(l, 'Id', i)): l for i, l in enumerate(m.Layers)}; seen = set()
+    while lay is not None and id(lay) not in seen:
+        if not lay.GetPersistentVisibility(): return False
+        seen.add(id(lay)); lay = ids.get(str(getattr(lay, 'ParentLayerId', None)))
+    return True
+
 def _material_col(m, a, lay, col):
     """diffuse colour and transparency from the object (or layer) render material, if any"""
     try:
@@ -102,7 +110,7 @@ def to_glb(path, out):
         if g is None: st['unreadable'] += 1; return
         if not a.Visible: st['hidden'] += 1; return
         li = a.LayerIndex; lay = m.Layers[li] if 0 <= li < len(m.Layers) else None
-        if lay is not None and not lay.GetPersistentVisibility(): st['layer_hidden'] += 1; return
+        if lay is not None and not layer_visible(m, lay): st['layer_hidden'] += 1; return
         ot = str(g.ObjectType).split('.')[-1]
         if ot == 'InstanceReference':
             ids = idefs.get(str(g.ParentIdefId))

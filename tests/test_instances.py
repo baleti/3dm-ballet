@@ -46,3 +46,12 @@ def test_unresolved_and_cycle(tmp_path, monkeypatch):
     monkeypatch.setattr(reader, 'load', lambda p: model(objs, [d]))
     st = reader.to_glb('x', str(tmp_path / 'o.glb'))
     assert st['instance_unresolved'] >= 2 and st['meshed'] == 1
+
+def test_parent_layer_hidden(tmp_path, monkeypatch):
+    mk = lambda i, par, vis: types.SimpleNamespace(Id=i, ParentLayerId=par, Color=(1, 2, 3, 255), Name=i, GetPersistentVisibility=lambda: vis)
+    m = model([mesh_obj('a')], [])
+    m.Layers = [mk('c', 'p', True), mk('p', 'z', False), mk('z', '0', True)]
+    monkeypatch.setattr(reader, 'load', lambda p: m)
+    assert reader.to_glb('x', str(tmp_path / 'o.glb')).get('layer_hidden') == 1
+    m.Layers[1] = mk('p', 'c', True)  # parent cycle must terminate and be visible
+    assert reader.to_glb('x', str(tmp_path / 'o.glb')).get('meshed') == 1
