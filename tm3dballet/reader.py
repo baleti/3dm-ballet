@@ -63,6 +63,14 @@ def _wire(g, n=24):
         out.append(np.array([(p.X, p.Y, p.Z) for p in pts], float))
     return out
 
+MAX_DEPTH = 16
+
+def _mat(t):
+    return np.array(t.ToFloatArray(True), float).reshape(4, 4)
+
+def _mul(a, b):
+    return b if a is None else a @ b
+
 def to_glb(path, out):
     """Export all visible objects. Returns stats dict. Solids use stored render meshes; objects without
     a stored mesh are drawn as wireframe (rhino3dm cannot mesh); points are skipped."""
@@ -70,25 +78,45 @@ def to_glb(path, out):
     yup = lambda v: np.c_[v[:, 0], v[:, 2], -v[:, 1]] * sc
     layer_col = {i: l.Color for i, l in enumerate(m.Layers)}
     batches = {}; st = collections.Counter()
-    for oi, o in enumerate(m.Objects):
+    by_id = {}; idefs = {}
+    for o in m.Objects:
+        try: by_id[str(o.Attributes.Id)] = o
+        except Exception: pass
+    for d in m.InstanceDefinitions:
+        try: idefs[str(d.Id)] = [str(i) for i in d.GetObjectIds()]
+        except Exception: pass
+    def emit(o, oi, xf, depth):
         g, a = o.Geometry, o.Attributes
-        if g is None: st['unreadable'] += 1; continue
-        if not a.Visible: st['hidden'] += 1; continue
+        if g is None: st['unreadable'] += 1; return
+        if not a.Visible: st['hidden'] += 1; return
         li = a.LayerIndex; lay = m.Layers[li] if 0 <= li < len(m.Layers) else None
-        if lay is not None and not lay.GetPersistentVisibility(): st['layer_hidden'] += 1; continue
+        if lay is not None and not lay.GetPersistentVisibility(): st['layer_hidden'] += 1; return
+        ot = str(g.ObjectType).split('.')[-1]
+        if ot == 'InstanceReference':
+            ids = idefs.get(str(g.ParentIdefId))
+            if ids is None or depth >= MAX_DEPTH: st['instance_unresolved'] += 1; return
+            st['instances'] += 1
+            for i in ids:
+                mo = by_id.get(i)
+                if mo is not None: emit(mo, oi, _mul(xf, _mat(g.Xform)), depth + 1)
+            return
         c = a.ObjectColor if int(a.ColorSource) == 1 else (lay.Color if lay is not None else (200, 200, 200, 255))
         col = (c[0] / 255, c[1] / 255, c[2] / 255, 1.0)
+        T = (lambda v: v) if xf is None else (lambda v: v @ xf[:3, :3].T + xf[:3, 3])
         meshes = _geom_meshes(g)
         if meshes:
             for mm in meshes:
                 v, t = _mesh_tris(mm)
-                if len(t): _add(batches, (li, col, 4), v, t.ravel(), oi, yup); st['meshed'] += 1
+                if len(t): _add(batches, (li, col, 4), T(v), t.ravel(), oi, yup); st['meshed'] += 1
         else:
             w = _wire(g)
             for p in w:
                 idx = np.array([(i, i + 1) for i in range(len(p) - 1)]).ravel()
-                _add(batches, (li, col, 1), p, idx, oi, yup)
-            st['wire' if w else 'skipped_' + str(g.ObjectType).split('.')[-1]] += 1
+                _add(batches, (li, col, 1), T(p), idx, oi, yup)
+            st['wire' if w else 'skipped_' + ot] += 1
+    for oi, o in enumerate(m.Objects):
+        if o.Attributes is not None and str(o.Attributes.Mode).split('.')[-1] == 'InstanceDefinitionObject': st['idef_member'] += 1; continue
+        emit(o, oi, None, 0)
     out_b = []
     for (li, col, mode), b in sorted(batches.items(), key=lambda kv: (kv[0][0], kv[0][2])):
         name = (m.Layers[li].Name if 0 <= li < len(m.Layers) else 'none') + ('' if mode == 4 else ' (wire)')
