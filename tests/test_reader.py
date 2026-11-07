@@ -19,9 +19,9 @@ def test_info_and_glb(f, tmp_path):
     g = _glb_ok(str(tmp_path / 'o.glb'))
     assert st['batches'] == len(g['meshes'])
 
-def test_brep_wire_fallback(tmp_path):
+def test_brep_face_fallback(tmp_path):
     f = os.path.join(os.path.dirname(__file__), 'data', 'V7-v7_my_brep.3dm')
-    st = reader.to_glb(f, str(tmp_path / 'o.glb')); assert st.get('wire') == 1 and st['batches'] == 1
+    st = reader.to_glb(f, str(tmp_path / 'o.glb')); assert st.get('meshed', 0) >= 1  # was wire-only before face tessellation
 
 def test_mesh_object(tmp_path):
     f = os.path.join(os.path.dirname(__file__), 'data', 'V7-v7_my_mesh.3dm')

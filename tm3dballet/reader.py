@@ -1,7 +1,7 @@
 """Reader: contents summary and mesh extraction for .3dm via rhino3dm (openNURBS)."""
 import collections
 import numpy as np
-from . import glb
+from . import glb, tess
 import rhino3dm as R
 
 # metres per model unit (subset; others fall back to 1.0 and are reported)
@@ -46,6 +46,23 @@ def _geom_meshes(g):
         mm = g.GetMesh(R.MeshType.Any)
         if mm is not None: out.append(mm)
     return out
+
+def _geom_vt(g):
+    """[(verts, tris)] for a geometry and whether some faces could not be meshed"""
+    ot = str(g.ObjectType).split('.')[-1]
+    if ot != 'Brep':
+        return [_mesh_tris(mm) for mm in _geom_meshes(g) if len(mm.Faces)], False
+    out = []; partial = False
+    for f in g.Faces:
+        mm = f.GetMesh(R.MeshType.Any)
+        if mm is not None:
+            v, t = _mesh_tris(mm)
+            if len(t): out.append((v, t)); continue
+        try: r = tess.tess_face(g, f)
+        except Exception: r = None
+        if r is None: partial = True
+        else: out.append(r)
+    return out, partial
 
 def _wire(g, n=24):
     """polyline samples for curves and (edge fallback) breps; list of Nx3 arrays"""
@@ -124,17 +141,16 @@ def to_glb(path, out):
         col = (c[0] / 255, c[1] / 255, c[2] / 255, 1.0)
         col = _material_col(m, a, lay, col)
         T = (lambda v: v) if xf is None else (lambda v: v @ xf[:3, :3].T + xf[:3, 3])
-        meshes = _geom_meshes(g)
-        if meshes:
-            for mm in meshes:
-                v, t = _mesh_tris(mm)
-                if len(t): _add(batches, (li, col, 4), T(v), t.ravel(), oi, yup); st['meshed'] += 1
-        else:
+        vt, partial = _geom_vt(g)
+        for v, t in vt:
+            _add(batches, (li, col, 4), T(v), t.ravel(), oi, yup); st['meshed'] += 1
+        if not vt or partial:
             w = _wire(g)
             for p in w:
                 idx = np.array([(i, i + 1) for i in range(len(p) - 1)]).ravel()
                 _add(batches, (li, col, 1), T(p), idx, oi, yup)
-            st['wire' if w else 'skipped_' + ot] += 1
+            if not vt: st['wire' if w else 'skipped_' + ot] += 1
+            else: st['partial_wire'] += 1
     for oi, o in enumerate(m.Objects):
         if o.Attributes is not None and str(o.Attributes.Mode).split('.')[-1] == 'InstanceDefinitionObject': st['idef_member'] += 1; continue
         emit(o, oi, None, 0)
