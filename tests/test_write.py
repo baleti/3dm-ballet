@@ -183,3 +183,31 @@ def test_census_catches_known_lossy_example(tmp_path):
     f = os.path.join(D, 'V5-v5_example_file.3dm'); m = R.File3dm.Read(f)
     o = str(tmp_path / 'o.3dm'); m.Write(o, m.ArchiveVersion)
     assert write.census_loss(write.census(f), write.census(o)) != []
+
+
+def _inject_unknown_record(src, dst, table=0x10000010, code=0x20001234, payload=b'ABCD'):
+    """insert an unknown record (no CRC flag) just before the end-of-table chunk of `table`; fix the table length"""
+    import struct
+    b = bytearray(open(src, 'rb').read()); o = 32
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if t == table:
+            inner = o + 12; end = inner + l; p = inner; last = None
+            while p + 12 <= end:
+                t2, l2 = struct.unpack_from('<Iq', b, p); last = p; p += 12 + l2
+            assert struct.unpack_from('<I', b, last)[0] == 0xffffffff
+            rec = struct.pack('<Iq', code, len(payload)) + payload
+            b[last:last] = rec; struct.pack_into('<q', b, o + 4, l + len(rec))
+            open(dst, 'wb').write(b); return True
+        o += 12 + l
+    return False
+
+
+def test_unknown_record_in_known_table_is_refused_not_silently_dropped(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    assert _inject_unknown_record(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    before = open(f, 'rb').read(); m = R.File3dm.Read(f)
+    if m is None: pytest.skip('library rejects the crafted file (also safe)')
+    lay = m.Layers[0].Name
+    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
