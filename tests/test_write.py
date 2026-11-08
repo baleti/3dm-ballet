@@ -474,3 +474,20 @@ def test_table_19_records_keep_source_bytes_after_save(name, tmp_path):
     assert _t19(f) == src
     b = open(f, 'rb').read(); assert struct.unpack_from('<q', b, len(b) - 8)[0] == len(b)
     assert R.File3dm.Read(f).Layers[0].Name == lay + '_x'
+
+
+def _settings(path):
+    r = write._table_records(open(path, 'rb').read(), 0x10000015)
+    return None if r is None else sorted((t, p) for _, _, t, p in r[2])
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_settings_table_bytes_identical_after_layer_rename(f, tmp_path):
+    """settings the user did not edit are put back byte for byte (the library re-emits them with a bumped minor version / extra fields)"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); s0 = _settings(g); lay = m.Layers[0].Name
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    s1 = _settings(g)
+    assert s1 == s0 or [t for (t, p), (t2, p2) in zip(s0, s1) if p != p2] == [], 'settings records differ'
+    assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'

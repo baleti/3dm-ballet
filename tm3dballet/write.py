@@ -190,7 +190,7 @@ def _table_records(b, table):
         o += 12 + l
     return None
 
-def restore_records(src, tmp, table, uuid_at=24):
+def restore_records(src, tmp, table, uuid_at=24, single=False):
     """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
     For every output record whose plug-in/class id (payload offset `uuid_at`) matches a source record that differs, put the source bytes back
     (each record has its own CRC; table chunks have none), then fix the table and end-of-file lengths."""
@@ -199,10 +199,11 @@ def restore_records(src, tmp, table, uuid_at=24):
     ta, tb = _table_records(a, table), _table_records(b, table)
     if ta is None or tb is None: return ta is None and tb is None
     pool = {}
-    for _, _, t, p in ta[2]: pool.setdefault((t, p[uuid_at:uuid_at + 16]), []).append(p)
+    key = (lambda t, p: t) if single else (lambda t, p: (t, p[uuid_at:uuid_at + 16]))   # single: one record per typecode (settings table)
+    for _, _, t, p in ta[2]: pool.setdefault(key(t, p), []).append(p)
     new = []; changed = False
     for r, n, t, p in tb[2]:
-        cand = pool.get((t, p[uuid_at:uuid_at + 16]))
+        cand = pool.get(key(t, p))
         if cand and p not in cand:
             p = cand.pop(0); changed = True
         elif cand and p in cand: cand.remove(p)
@@ -387,6 +388,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
         if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
+        if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
