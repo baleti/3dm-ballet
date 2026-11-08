@@ -130,6 +130,10 @@ def edit_file(path, edit, expect, backup=True):
     """edit(model) mutates the model; expect(diffs) -> True when the diffs are exactly the intended ones.
     Original is replaced only if every check passes. Returns list of diffs applied."""
     path = os.path.realpath(path)   # never replace a symlink itself; edit its target in place of the link
+    import stat
+    try: mode = os.stat(path).st_mode
+    except OSError as e: raise Refused('cannot stat: %s' % e)
+    if not stat.S_ISREG(mode): raise Refused('not a regular file')
     try: probe.probe(path)
     except probe.Unreadable as e: raise Refused(str(e))
     if os.stat(path).st_nlink > 1: raise Refused('file has multiple hard links; replacing it would silently detach the other names')

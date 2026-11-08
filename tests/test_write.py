@@ -129,3 +129,24 @@ def test_readonly_directory_refused_original_intact(tmp_path):
         with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
     finally: os.chmod(d, 0o755)
     assert open(f, 'rb').read() == before and os.listdir(d) == ['a.3dm']
+
+
+@pytest.mark.parametrize('kind', ['dir', 'fifo'])
+def test_non_regular_source_refused_nothing_created(kind, tmp_path):
+    if os.name != 'posix': pytest.skip('posix')
+    p = tmp_path / 'x.3dm'
+    if kind == 'dir': p.mkdir()
+    else: os.mkfifo(str(p))
+    with pytest.raises(write.Refused): write.rename_layer(str(p), 'a', 'b')
+    assert os.listdir(tmp_path) == ['x.3dm']
+
+
+def test_kill_mid_save_unicode_space_path(tmp_path):
+    import subprocess, sys
+    d = tmp_path / 'café modèle 1'; d.mkdir(); f = str(d / 'plän final.3dm')
+    shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    root = os.path.dirname(os.path.dirname(__file__))
+    code = ('import sys,os\nsys.path[:0]=[%r,%r]\nfrom tm3dballet import write\n'
+            'write.os.replace = lambda a, b: os._exit(9)\nwrite.rename_layer(%r, %r, "zzz")\n') % (root, os.path.join(root, '.deps'), f, lay)
+    assert subprocess.run([sys.executable, '-I', '-c', code], timeout=120).returncode == 9
+    assert open(f, 'rb').read() == before
