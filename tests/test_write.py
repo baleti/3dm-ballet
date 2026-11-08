@@ -452,3 +452,25 @@ def test_foreign_plugin_user_record_change_is_refused(tmp_path, monkeypatch):
     lay = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused, match='user record'): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before
+
+
+def _t19(path):
+    r = write._table_records(open(path, 'rb').read(), 0x10000019)
+    return [] if r is None else sorted(p for _, _, _, p in r[2])
+
+FONT_CHANGED = ['V5-v5_extrusions.3dm', 'V5-v5_my_brep.3dm', 'V5-v5_my_curves.3dm', 'V5-v5_my_points.3dm']
+
+@pytest.mark.parametrize('name', FONT_CHANGED)
+def test_table_19_records_keep_source_bytes_after_save(name, tmp_path):
+    """the library rewrites a text-style/font record ('Default' -> 'ArialMT'); the guarded save puts the source record back"""
+    import struct
+    f = str(tmp_path / name); shutil.copy(next(q for q in FILES if os.path.basename(q) == name), f)
+    src = _t19(f); assert src
+    m = R.File3dm.Read(f); raw = str(tmp_path / 'raw.3dm'); m.Write(raw, m.ArchiveVersion)
+    if _t19(raw) == src: pytest.skip('library does not alter this file')
+    lay = m.Layers[0].Name
+    try: write.rename_layer(f, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    assert _t19(f) == src
+    b = open(f, 'rb').read(); assert struct.unpack_from('<q', b, len(b) - 8)[0] == len(b)
+    assert R.File3dm.Read(f).Layers[0].Name == lay + '_x'

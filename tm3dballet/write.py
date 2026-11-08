@@ -171,6 +171,50 @@ def restore_preview(src, tmp):
     with open(tmp, 'wb') as fh: fh.write(b)
     return True
 
+def _table_records(b, table):
+    """(table_off, table_len, [(rec_off, rec_total_len, typecode, payload)]) for the first top-level chunk `table`, or None"""
+    import struct
+    o = 32
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): return None
+        if t == table:
+            recs = []; r = o + 12
+            while r + 12 <= o + 12 + l:
+                t2, l2 = struct.unpack_from('<Iq', b, r)
+                if t2 & 0x80000000: recs.append((r, 12, t2, b[r + 12:r + 12])); r += 12; continue   # short chunk: value lives in the length field, kept verbatim
+                if l2 < 0 or r + 12 + l2 > o + 12 + l: return None
+                recs.append((r, 12 + l2, t2, b[r + 12:r + 12 + l2])); r += 12 + l2
+            return o, l, recs
+        if t == 0x7fff: return None
+        o += 12 + l
+    return None
+
+def restore_records(src, tmp, table, uuid_at=24):
+    """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
+    For every output record whose plug-in/class id (payload offset `uuid_at`) matches a source record that differs, put the source bytes back
+    (each record has its own CRC; table chunks have none), then fix the table and end-of-file lengths."""
+    import struct
+    a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
+    ta, tb = _table_records(a, table), _table_records(b, table)
+    if ta is None or tb is None: return ta is None and tb is None
+    pool = {}
+    for _, _, t, p in ta[2]: pool.setdefault((t, p[uuid_at:uuid_at + 16]), []).append(p)
+    new = []; changed = False
+    for r, n, t, p in tb[2]:
+        cand = pool.get((t, p[uuid_at:uuid_at + 16]))
+        if cand and p not in cand:
+            p = cand.pop(0); changed = True
+        elif cand and p in cand: cand.remove(p)
+        new.append(b[r:r + 12] if t & 0x80000000 else struct.pack('<Iq', t, len(p)) + p)
+    if not changed: return True
+    body = b''.join(new); o, l, _ = tb
+    out = bytearray(b[:o + 4]) + struct.pack('<q', len(body)) + body + b[o + 12 + l:]
+    if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
+    struct.pack_into('<q', out, len(out) - 8, len(out))
+    with open(tmp, 'wb') as fh: fh.write(out)
+    return True
+
 def notes_of(path):
     """(is_html, text, visible, window ints) of the document notes record (0x20008022; rhino3dm exposes no Notes API so it was uncompared).
     The library bumps the record minor version, so the raw bytes differ; the content must not."""
@@ -342,6 +386,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
     try:
         if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
+        if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
