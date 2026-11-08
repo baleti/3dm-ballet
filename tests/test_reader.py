@@ -43,3 +43,13 @@ def test_material_transparency(tmp_path):
     reader.to_glb('tests/data/V2-v2_my_mesh_with_material.3dm', str(out))
     b = out.read_bytes(); jl = struct.unpack('<I', b[12:16])[0]; j = json.loads(b[20:20 + jl])
     assert any(m['pbrMetallicRoughness']['baseColorFactor'][3] == 0.8 for m in j['materials'])
+
+
+def test_lights_and_annotations_are_drawn_as_markers(tmp_path):
+    import os
+    from tm3dballet import reader
+    d = os.path.join(os.path.dirname(__file__), 'data')
+    st = reader.to_glb(os.path.join(d, 'V7-v7_my_spot_light.3dm'), str(tmp_path / 'l.glb'))
+    assert st['wire'] == 1 and not any(k.startswith('skipped_Light') for k in st)
+    st = reader.to_glb(os.path.join(d, 'V6-V6_annotation.3dm'), str(tmp_path / 'a.glb'))
+    assert st['wire'] == 7 and not any(k.startswith('skipped_Annotation') for k in st)

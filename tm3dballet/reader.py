@@ -76,20 +76,29 @@ def _geom_vt(g):
         else: out.append(r)
     return out, partial
 
-_MARKER_TYPES = ('Point', 'TextDot', 'PointSet', 'PointCloud')
+_MARKER_TYPES = ('Point', 'TextDot', 'PointSet', 'PointCloud', 'Light', 'Annotation')
 
 def _markers(g, ot, h):
-    """3-axis crosses (as line strips) at point-like geometry; PointCloud capped at 2000 points"""
+    """3-axis crosses (as line strips) at point-like geometry, light/annotation anchors; PointCloud capped at 2000 points"""
+    extra = None
     try:
         if ot == 'PointCloud':
             n = g.Count; step = max(1, n // 2000)
             pts = [g[i] if hasattr(g, '__getitem__') else None for i in range(0, n, step)]
             pts = [(p.X, p.Y, p.Z) for p in pts if p is not None]
+        elif ot == 'Annotation':
+            c = g.Plane.Origin; pts = [(c.X, c.Y, c.Z)]
+        elif ot == 'Light':
+            c = g.Location; pts = [(c.X, c.Y, c.Z)]
+            try:
+                d = g.Direction; n = (d.X * d.X + d.Y * d.Y + d.Z * d.Z) ** 0.5
+                if n > 0: extra = np.array([(c.X, c.Y, c.Z), (c.X + d.X / n * h * 6, c.Y + d.Y / n * h * 6, c.Z + d.Z / n * h * 6)], float)
+            except Exception: pass
         else:
             c = g.GetBoundingBox().Center; pts = [(c.X, c.Y, c.Z)]
     except Exception:
         return []
-    out = []
+    out = [extra] if extra is not None else []
     for x, y, z in pts:
         for d in ((h, 0, 0), (0, h, 0), (0, 0, h)):
             out.append(np.array([(x - d[0], y - d[1], z - d[2]), (x + d[0], y + d[1], z + d[2])], float))
