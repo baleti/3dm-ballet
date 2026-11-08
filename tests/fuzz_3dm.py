@@ -9,6 +9,9 @@ from tm3dballet import reader, write
 import rhino3dm as R
 f = sys.argv[1]
 try:
+    from tm3dballet import probe
+    try: probe.probe(f, timeout=15)
+    except probe.Unreadable: print('guarded'); sys.exit(0)
     m = R.File3dm.Read(f)
     if m is None: print("none"); sys.exit(0)
     reader.info(f); reader.to_glb(f, f + ".glb")
