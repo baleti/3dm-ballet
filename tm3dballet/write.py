@@ -156,8 +156,15 @@ def edit_file(path, edit, expect, backup=True):
         st1 = os.stat(path)
         if (st1.st_size, st1.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest()) != sig0:
             raise Refused('source changed during edit; refusing to overwrite')
+        try:
+            shutil.copymode(path, tmp)   # mkstemp creates 0600; keep the original permissions
+            with open(tmp, 'rb') as fh: os.fsync(fh.fileno())
+        except OSError as e: raise Refused('cannot finalise output, original untouched: %s' % e)
         if backup:
-            try: shutil.copy2(path, path + '.bak')
+            try:
+                bak = path + '.bak'; k = 0
+                while os.path.exists(bak): k += 1; bak = '%s.bak.%d' % (path, k)   # never overwrite an earlier backup
+                shutil.copy2(path, bak)
             except OSError as e: raise Refused('backup failed, original untouched: %s' % e)
         try: os.replace(tmp, path)
         except OSError as e: raise Refused('replace failed, original untouched: %s' % e)

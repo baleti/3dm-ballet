@@ -72,3 +72,13 @@ def test_view_change_detected():
     assert any('views' in d for d in write.diff(s1, other))
     m2 = R.File3dm.Read(f)
     assert write.diff(s1, write.snapshot(m2)) == []
+
+
+def test_second_edit_keeps_first_backup_and_mode(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); os.chmod(f, 0o644)
+    orig = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    write.rename_layer(f, lay, lay + '_1'); write.rename_layer(f, lay + '_1', lay + '_2')
+    assert open(f + '.bak', 'rb').read() == orig          # the true original survives the second edit
+    assert os.path.exists(f + '.bak.1') and open(f + '.bak.1', 'rb').read() != orig
+    if os.name == 'posix': assert os.stat(f).st_mode & 0o777 == 0o644
+    assert R.File3dm.Read(f).Layers[0].Name == lay + '_2'
