@@ -46,7 +46,18 @@ def _geom_meshes(g):
     elif ot == 'Extrusion':
         mm = g.GetMesh(R.MeshType.Any)
         if mm is not None: out.append(mm)
+    elif ot == 'SubD':
+        mm = _subd_mesh(g)
+        if mm is not None: out.append(mm)
     return out
+
+def _subd_mesh(g, budget=400000):
+    """approximate SubD display: control net of a copy subdivided twice (one level if huge). Not the exact limit surface."""
+    try:
+        d = g.Duplicate(); d.Subdivide(2 if g.FaceCount * 16 <= budget else 1)
+        return R.Mesh.CreateFromSubDControlNet(d, False)
+    except Exception:
+        return None
 
 def _geom_vt(g):
     """[(verts, tris)] for a geometry and whether some faces could not be meshed"""
