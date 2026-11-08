@@ -114,3 +114,11 @@ def test_hardlinked_file_refused(tmp_path):
     f = _good(tmp_path); os.link(str(f), str(tmp_path / 'other.3dm')); before = f.read_bytes()
     with pytest.raises(write.Refused, match='hard link'): write.edit_file(str(f), lambda m: None, lambda d: True)
     assert f.read_bytes() == before and (tmp_path / 'other.3dm').read_bytes() == before
+
+
+def test_memory_cap_applied_to_probe_child(tmp_path, monkeypatch):
+    if os.name == 'nt': pytest.skip('posix rlimit')
+    f = _good(tmp_path); probe._OK.clear()
+    monkeypatch.setattr(probe, 'MEM_LIMIT', 16 << 20)   # far too small for python+rhino3dm: child must die, probe must refuse
+    with pytest.raises(probe.Unreadable): probe.probe(str(f))
+    monkeypatch.undo(); probe._OK.clear(); probe.probe(str(f))

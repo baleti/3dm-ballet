@@ -9,6 +9,14 @@ _CHILD = ("import sys; sys.path[:0] = sys.argv[2:]\n"
           "import rhino3dm as R\n"
           "m = R.File3dm.Read(sys.argv[1]); sys.exit(0 if m is not None else 3)\n")
 
+MEM_LIMIT = 8 << 30   # address-space cap for the probe child (posix); a hostile size field cannot exhaust the host
+
+def _limit():
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (MEM_LIMIT, MEM_LIMIT))
+    except Exception: pass
+
 _OK = {}   # in-process cache of files that passed: key includes size, mtime_ns and inode so any change re-probes
 
 def _key(path):
@@ -27,7 +35,7 @@ def probe(path, timeout=30):
 def _probe(path, timeout):
     paths = [p for p in sys.path if p]
     try:
-        r = subprocess.run([sys.executable, '-I', '-c', _CHILD, path] + paths, capture_output=True, timeout=timeout)
+        r = subprocess.run([sys.executable, '-I', '-c', _CHILD, path] + paths, capture_output=True, timeout=timeout, **({'preexec_fn': _limit} if os.name == 'posix' else {}))
     except subprocess.TimeoutExpired:
         raise Unreadable('reader timed out (corrupt or hostile file): %s' % path)
     if r.returncode != 0:
