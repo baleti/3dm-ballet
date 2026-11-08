@@ -395,3 +395,23 @@ def test_extra_chunk_in_object_record_is_never_silently_dropped(tmp_path):
     try: write.rename_layer(f, lay, lay + '_x')
     except write.Refused: assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak'); return
     assert write.object_census(f)[('obj', '40008abc')] == 1, 'accepted save dropped the extra chunk'
+
+
+PREVIEW_CHANGED = {'rh_AllMeshModifiers.3dm', 'rh_RenderContent.3dm', 'rh_blocks.3dm', 'rh_groups.3dm', 'rh_light.3dm', 'rh_meshWithTexture.3dm',
+                   'rh_object_UserStrings.3dm', 'rh_subd.3dm', 'rh_subdBox.3dm', 'rh_textEntities_r8.3dm', 'rh_unassignedmaterials.3dm'}
+
+def _preview(path):
+    b = open(path, 'rb').read(); r = write._find_record(b, 0x10000014, write.PREVIEW)
+    return None if r is None else b[r[1] + 12:r[1] + 12 + r[2]]
+
+@pytest.mark.parametrize('name', sorted(PREVIEW_CHANGED))
+def test_saved_file_keeps_original_preview_image_and_valid_length(name, tmp_path):
+    """the library rewrites the thumbnail (3 MB -> a few KB); the gate must carry the original bytes over"""
+    import struct
+    f = str(tmp_path / name); shutil.copy(next(q for q in FILES if os.path.basename(q) == name), f)
+    pv = _preview(f); lay = R.File3dm.Read(f).Layers[0].Name
+    try: write.rename_layer(f, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    assert _preview(f) == pv
+    b = open(f, 'rb').read(); assert struct.unpack_from('<q', b, len(b) - 8)[0] == len(b)
+    assert R.File3dm.Read(f).Layers[0].Name == lay + '_x'

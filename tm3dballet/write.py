@@ -131,6 +131,46 @@ def diff(a, b):
             if x[k] != y[k]: out.append('object %s %s differs' % (i, k))
     return out
 
+PREVIEW = 0x20008025   # properties-table record holding the thumbnail bitmap (the library rewrites it much smaller/blank)
+
+def _find_record(b, table, code):
+    """(table_off, rec_off, rec_len) of the single record `code` in top-level chunk `table`, else None"""
+    import struct
+    o = 32; hit = []
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): return None
+        if t == table:
+            r = o + 12
+            while r + 12 <= o + 12 + l:
+                t2, l2 = struct.unpack_from('<Iq', b, r)
+                if t2 & 0x80000000: r += 12; continue
+                if l2 < 0 or r + 12 + l2 > o + 12 + l: return None
+                if t2 == code: hit.append((o, r, l2))
+                r += 12 + l2
+        if t == 0x7fff: break
+        o += 12 + l
+    return hit[0] if len(hit) == 1 else None
+
+def restore_preview(src, tmp):
+    """copy the source's preview-image record byte for byte into the output (record carries its own CRC; the table chunk has none).
+    Returns True when restored or nothing to do, False when the layout is not understood (caller refuses)."""
+    import struct
+    a = open(src, 'rb').read(); b = bytearray(open(tmp, 'rb').read())
+    ra, rb = _find_record(a, 0x10000014, PREVIEW), _find_record(bytes(b), 0x10000014, PREVIEW)
+    if ra is None and rb is None: return True
+    if ra is None or rb is None: return False
+    pa = a[ra[1] + 12:ra[1] + 12 + ra[2]]
+    if bytes(b[rb[1] + 12:rb[1] + 12 + rb[2]]) == pa: return True
+    b[rb[1] + 12:rb[1] + 12 + rb[2]] = pa
+    struct.pack_into('<q', b, rb[1] + 4, len(pa))
+    tl = struct.unpack_from('<q', b, rb[0] + 4)[0]
+    struct.pack_into('<q', b, rb[0] + 4, tl + len(pa) - rb[2])
+    if len(b) < 20 or struct.unpack_from('<Iq', b, len(b) - 20)[:2] != (0x7fff, 8): return False   # end-of-file chunk stores the file length
+    struct.pack_into('<q', b, len(b) - 8, len(b))
+    with open(tmp, 'wb') as fh: fh.write(b)
+    return True
+
 def census(path):
     """count of (top-level table chunk, record typecode) in a 3dm file (archive >= V5 chunk framing, 8-byte lengths).
     Used as a second, byte-structure level check: a rewrite that drops table records must not be accepted."""
@@ -252,6 +292,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
     except OSError as e: raise Refused('cannot create temp file next to source: %s' % e)
     try:
         if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
+        if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
