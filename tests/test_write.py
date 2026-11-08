@@ -348,3 +348,18 @@ def test_no_unreadable_placeholders_in_snapshots():
         if m is None or write.gate(m): continue
         walk(write.snapshot(m), '')
     assert sorted(set(bad)) == [], sorted(set(bad))
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_object_census_noedit_rewrite_never_loses_chunks_in_accepted_files(f, tmp_path):
+    """sweep: files the gate accepts keep every chunk typecode inside object records after a rewrite"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    out = str(tmp_path / 'o.3dm'); m.Write(out, m.ArchiveVersion)
+    assert write.census_loss(write.object_census(f), write.object_census(out)) == [] or os.path.basename(f) in KNOWN_LOSSY
+
+
+def test_object_census_detects_dropped_chunk(tmp_path):
+    from collections import Counter
+    a = Counter({('obj', '00027ffa'): 2, ('obj', '40008001'): 1}); b = Counter({('obj', '00027ffa'): 2})
+    assert write.census_loss(a, b) == ['obj/40008001: 1 -> 0']

@@ -149,6 +149,25 @@ def census(path):
     if stop < len(b): c[('', 'trailing-bytes')] = len(b) - stop   # data after the last chunk; the library does not carry it over
     return c
 
+def object_census(path):
+    """Counter of the chunk typecodes found inside the object-table records (type, attributes, geometry, userdata, class-end ...).
+    census() stops at the record level, so a rewrite that dropped a userdata/extra chunk inside an object record was invisible."""
+    import struct, collections
+    b = open(path, 'rb').read(); c = collections.Counter()
+    def kids(o, end):
+        while o + 12 <= end:
+            t, l = struct.unpack_from('<Iq', b, o)
+            if t & 0x80000000: yield t, o, 0; o += 12; continue
+            if l < 0 or o + 12 + l > end: return
+            yield t, o, l; o += 12 + l
+    for t, o, l in kids(32, len(b)):
+        if t == 0x10000013:
+            for t2, o2, l2 in kids(o + 12, o + 12 + l):
+                if t2 & 0x80000000: continue
+                for t3, _, _ in kids(o2 + 12, o2 + 12 + l2): c[('obj', '%08x' % t3)] += 1
+        if t == 0x7fff: break
+    return c
+
 # settings-table records whose payload bytes were identical after a no-edit rewrite in 100 percent of the 53 public V5+
 # samples (document/render/analysis/etc settings); a difference after an edit that did not touch settings is refused.
 STABLE_PAYLOAD = {('10000015', t) for t in ('20008035', '20008036', '20008039', '2000803a', '20008135', 'a0000038', 'a000003c')} | \
@@ -241,6 +260,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
         if after['version'] != before['version']: raise Refused('archive version changed')
         if ver >= 50:
             lost = census_loss(census(path), census(tmp))
+            lost = lost or ['object-record ' + x for x in census_loss(object_census(path), object_census(tmp))]
             if lost: raise Refused('output has fewer table records than the source: %s' % lost[:4])
             if not any(d.split()[0] in ('units', 'extra', 'header') for d in diff(before, after)) and not allow_settings:
                 p0, p1 = stable_payloads(path), stable_payloads(tmp)
