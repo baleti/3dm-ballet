@@ -37,6 +37,18 @@ def main(argv=None):
     if a[0] == 'convert':
         out = a[2] if len(a) > 2 else os.path.splitext(a[1])[0] + '.glb'
         print(json.dumps(reader.to_glb(a[1], out))); print(out); return 0
+    if a[0] == 'rename-layer':
+        # rename-layer FILE OLD NEW [--overwrite]: without --overwrite the guarded edit runs on a temp copy only (dry run)
+        from . import write
+        if len(a) < 4: print('usage: rename-layer FILE OLD NEW [--overwrite]'); return 2
+        f, old, new = a[1], a[2], a[3]; real = '--overwrite' in a
+        target = f
+        if not real:
+            import shutil
+            target = os.path.join(tempfile.mkdtemp(prefix='3dmb-dry-'), os.path.basename(f)); shutil.copyfile(f, target)
+        try: ds = write.rename_layer(target, old, new)
+        except write.Refused as e: print('REFUSED, file untouched: %s' % e); return 1
+        print(('SAVED in place (backup %s.bak*): ' % f if real else 'dry run OK, nothing written (use --overwrite): ') + ', '.join(ds)); return 0
     f = a[1] if a[0] == 'open' else a[0]
     print(json.dumps(reader.info(f), indent=1))
     out = os.path.join(tempfile.mkdtemp(prefix='3dmb-'), os.path.basename(f) + '.glb')
