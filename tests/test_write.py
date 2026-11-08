@@ -108,3 +108,24 @@ def test_process_killed_mid_save_leaves_original_identical(where, tmp_path):
     assert r.returncode == 9
     assert open(f, 'rb').read() == before
     assert R.File3dm.Read(f).Layers[0].Name == lay
+
+
+def test_dangling_bak_symlink_not_followed(tmp_path):
+    if os.name != 'posix': pytest.skip('symlinks')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    victim = tmp_path / 'victim.txt'; os.symlink(str(victim), f + '.bak')   # dangling
+    orig = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    write.rename_layer(f, lay, lay + '_x')
+    assert not victim.exists() and os.path.islink(f + '.bak')
+    assert open(f + '.bak.1', 'rb').read() == orig
+
+
+def test_readonly_directory_refused_original_intact(tmp_path):
+    if os.name != 'posix' or os.geteuid() == 0: pytest.skip('needs posix non-root')
+    d = tmp_path / 'ro'; d.mkdir(); f = str(d / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    os.chmod(d, 0o555)
+    try:
+        with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+    finally: os.chmod(d, 0o755)
+    assert open(f, 'rb').read() == before and os.listdir(d) == ['a.3dm']

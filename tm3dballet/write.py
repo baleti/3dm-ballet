@@ -163,7 +163,7 @@ def edit_file(path, edit, expect, backup=True):
         if backup:
             try:
                 bak = path + '.bak'; k = 0
-                while os.path.exists(bak): k += 1; bak = '%s.bak.%d' % (path, k)   # never overwrite an earlier backup
+                while os.path.lexists(bak): k += 1; bak = '%s.bak.%d' % (path, k)   # never overwrite an earlier backup
                 shutil.copy2(path, bak)
             except OSError as e: raise Refused('backup failed, original untouched: %s' % e)
         try: os.replace(tmp, path)
