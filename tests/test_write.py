@@ -363,3 +363,35 @@ def test_object_census_detects_dropped_chunk(tmp_path):
     from collections import Counter
     a = Counter({('obj', '00027ffa'): 2, ('obj', '40008001'): 1}); b = Counter({('obj', '00027ffa'): 2})
     assert write.census_loss(a, b) == ['obj/40008001: 1 -> 0']
+
+
+def _inject_object_chunk(src, dst):
+    """insert an unknown 4-byte chunk (as a userdata-like extra) at the end of the first object record, fixing parent lengths"""
+    import struct
+    b = bytearray(open(src, 'rb').read()); o = 32
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if t == 0x10000013:
+            r = o + 12; t2, l2 = struct.unpack_from('<Iq', b, r)
+            extra = struct.pack('<Iq', 0x40008abc, 4) + b'\1\2\3\4'
+            end = r + 12 + l2 - 4          # record payload ends with a 4-byte CRC (typecode bit 0x8000)
+            b[end:end] = extra
+            import zlib
+            crc = zlib.crc32(bytes(b[r + 12:end + len(extra)])) & 0xffffffff
+            b[end + len(extra):end + len(extra) + 4] = struct.pack('<I', crc)
+            struct.pack_into('<q', b, r + 4, l2 + len(extra)); struct.pack_into('<q', b, o + 4, l + len(extra))
+            open(dst, 'wb').write(b); return
+        o += 12 + l
+    raise AssertionError('no object table')
+
+
+def test_extra_chunk_in_object_record_is_never_silently_dropped(tmp_path):
+    src = next(q for q in FILES if os.path.basename(q).startswith('V8-'))
+    f = str(tmp_path / 'x.3dm'); _inject_object_chunk(src, f)
+    assert write.object_census(f)[('obj', '40008abc')] == 1
+    m = R.File3dm.Read(f); before = open(f, 'rb').read()
+    if m is None: pytest.skip('library refuses the file itself (also safe)')
+    lay = m.Layers[0].Name
+    try: write.rename_layer(f, lay, lay + '_x')
+    except write.Refused: assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak'); return
+    assert write.object_census(f)[('obj', '40008abc')] == 1, 'accepted save dropped the extra chunk'
