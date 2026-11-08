@@ -31,3 +31,32 @@ def test_source_modified_during_edit_refused(tmp_path):
         write.edit_file(str(f), edit, lambda d: True)
     assert f.read_bytes().endswith(b'\0') and not os.path.exists(str(f) + '.bak')
     assert [p.name for p in tmp_path.iterdir()] == ['a.3dm']
+
+
+def _good(tmp_path):
+    import glob
+    src = sorted(glob.glob(os.path.join(HERE, 'data', 'V8-*.3dm')))[0]
+    f = tmp_path / 'a.3dm'; f.write_bytes(open(src, 'rb').read()); return f
+
+def test_readonly_directory_refused_original_intact(tmp_path):
+    if os.name == 'nt' or os.geteuid() == 0: pytest.skip('posix non-root only')
+    f = _good(tmp_path); before = f.read_bytes(); os.chmod(tmp_path, 0o555)
+    try:
+        with pytest.raises(write.Refused): write.edit_file(str(f), lambda m: None, lambda d: True)
+    finally: os.chmod(tmp_path, 0o755)
+    assert f.read_bytes() == before
+
+def test_write_failure_and_replace_failure_leave_original(tmp_path, monkeypatch):
+    f = _good(tmp_path); before = f.read_bytes()
+    monkeypatch.setattr(os, 'replace', lambda a, b: (_ for _ in ()).throw(OSError(28, 'No space left on device')))
+    with pytest.raises(write.Refused, match='replace failed'): write.edit_file(str(f), lambda m: None, lambda d: True)
+    monkeypatch.undo()
+    assert f.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith('.3dm') and p.name != 'a.3dm'] == []
+
+def test_backup_failure_refuses_before_replace(tmp_path, monkeypatch):
+    f = _good(tmp_path); before = f.read_bytes()
+    monkeypatch.setattr(write.shutil, 'copy2', lambda a, b: (_ for _ in ()).throw(OSError(28, 'No space left')))
+    with pytest.raises(write.Refused, match='backup failed'): write.edit_file(str(f), lambda m: None, lambda d: True)
+    monkeypatch.undo()
+    assert f.read_bytes() == before

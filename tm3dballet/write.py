@@ -101,7 +101,9 @@ def edit_file(path, edit, expect, backup=True):
     if why: raise Refused('; '.join(why))
     before = snapshot(m); ver = m.ArchiveVersion
     edit(m)
-    d = os.path.dirname(os.path.abspath(path)); fd, tmp = tempfile.mkstemp(suffix='.3dm', dir=d); os.close(fd)
+    d = os.path.dirname(os.path.abspath(path))
+    try: fd, tmp = tempfile.mkstemp(suffix='.3dm', dir=d); os.close(fd)
+    except OSError as e: raise Refused('cannot create temp file next to source: %s' % e)
     try:
         if not m.Write(tmp, ver): raise Refused('write failed')
         try: probe.probe(tmp)
@@ -115,8 +117,11 @@ def edit_file(path, edit, expect, backup=True):
         st1 = os.stat(path)
         if (st1.st_size, st1.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest()) != sig0:
             raise Refused('source changed during edit; refusing to overwrite')
-        if backup: shutil.copy2(path, path + '.bak')
-        os.replace(tmp, path)
+        if backup:
+            try: shutil.copy2(path, path + '.bak')
+            except OSError as e: raise Refused('backup failed, original untouched: %s' % e)
+        try: os.replace(tmp, path)
+        except OSError as e: raise Refused('replace failed, original untouched: %s' % e)
         return ds
     finally:
         if os.path.exists(tmp): os.remove(tmp)

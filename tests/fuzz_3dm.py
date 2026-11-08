@@ -13,6 +13,15 @@ try:
     if m is None: print("none"); sys.exit(0)
     reader.info(f); reader.to_glb(f, f + ".glb")
     print("gate:" + ";".join(write.gate(m)) if write.gate(m) else "ok")
+    import hashlib, os
+    h0 = hashlib.sha256(open(f, "rb").read()).hexdigest()
+    try:
+        ds = write.edit_file(f, lambda mm: None, lambda d: d == [])
+        print("write:applied" if hashlib.sha256(open(f, "rb").read()).hexdigest() != h0 or ds == [] else "ESCAPE")
+    except write.Refused:
+        print("write:refused" if hashlib.sha256(open(f, "rb").read()).hexdigest() == h0 else "ESCAPE:original damaged")
+    if os.path.exists(f + ".bak") and open(f + ".bak", "rb").read() and hashlib.sha256(open(f + ".bak", "rb").read()).hexdigest() != h0:
+        print("ESCAPE:bad backup")
 except Exception as e:
     print("exc:" + type(e).__name__)
 '''
@@ -32,13 +41,13 @@ def run(n=40, seed=1):
             f = os.path.join(d, 'x.3dm'); open(f, 'wb').write(b)
             try: r = subprocess.run([sys.executable, '-I', '-c', CHILD, f, os.path.join(HERE, '..'), os.path.join(HERE, '..', '.deps')], capture_output=True, text=True, timeout=40, env=env)
             except subprocess.TimeoutExpired: k = 'TIMEOUT'
-            else: k = 'CRASH rc=%d' % r.returncode if r.returncode else (r.stdout.strip().split('\n')[-1] or 'silent')
+            else: k = 'CRASH rc=%d' % r.returncode if r.returncode else ('ESCAPE' if 'ESCAPE' in r.stdout else (r.stdout.strip().split('\n')[-1] or 'silent'))
         res[(os.path.basename(src), mode, i)] = k
     return res
 if __name__ == '__main__':
     res = run(int(sys.argv[1]) if len(sys.argv) > 1 else 40)
     from collections import Counter
-    print(Counter(v.split(':')[0] for v in res.values()))
-    bad = {k: v for k, v in res.items() if v.startswith(('CRASH', 'TIMEOUT'))}
+    print(Counter(v for v in res.values()))
+    bad = {k: v for k, v in res.items() if v.startswith(('CRASH', 'ESCAPE'))}
     for k, v in bad.items(): print(k, v)
     sys.exit(1 if bad else 0)
