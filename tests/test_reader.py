@@ -53,3 +53,14 @@ def test_lights_and_annotations_are_drawn_as_markers(tmp_path):
     assert st['wire'] == 1 and not any(k.startswith('skipped_Light') for k in st)
     st = reader.to_glb(os.path.join(d, 'V6-V6_annotation.3dm'), str(tmp_path / 'a.glb'))
     assert st['wire'] == 7 and not any(k.startswith('skipped_Annotation') for k in st)
+
+
+def test_dimension_display_lines_drawn(tmp_path):
+    import os, json
+    from tm3dballet import reader
+    st = reader.to_glb(os.path.join(os.path.dirname(__file__), 'data', 'V6-V6_annotation.3dm'), str(tmp_path / 'a.glb'))
+    # 6 annotations: anchor crosses (3 segments each) plus 2+4+3+3 display lines of the 4 dimensions
+    b = (tmp_path / 'a.glb').read_bytes()
+    n = int.from_bytes(b[12:16], 'little'); j = json.loads(b[20:20 + n])
+    cnt = sum(j['accessors'][p['indices']]['count'] for me in j['meshes'] for p in me['primitives'] if p.get('mode') == 1 and 'indices' in p)
+    assert cnt >= 2 * (6 * 3 + 12)

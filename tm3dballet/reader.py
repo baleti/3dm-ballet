@@ -78,6 +78,20 @@ def _geom_vt(g):
 
 _MARKER_TYPES = ('Point', 'TextDot', 'PointSet', 'PointCloud', 'Light', 'Annotation')
 
+def _dimlines(m, g):
+    """dimension display lines (extension/dimension/arrow lines) using the object's style, else the first; text rectangle is not used (rhino3dm returns uninitialised memory for it)"""
+    if not hasattr(g, 'GetDisplayLines') or not len(m.DimStyles): return []
+    sid = str(getattr(g, 'DimensionStyleId', ''))
+    ds = next((d for d in m.DimStyles if str(d.Id) == sid), m.DimStyles[0])
+    out = []
+    try:
+        for l in g.GetDisplayLines(ds)['lines']:
+            a = np.array([(l.From.X, l.From.Y, l.From.Z), (l.To.X, l.To.Y, l.To.Z)], float)
+            if np.isfinite(a).all() and abs(a).max() < 1e12: out.append(a)
+    except Exception:
+        pass
+    return out
+
 def _markers(g, ot, h):
     """3-axis crosses (as line strips) at point-like geometry, light/annotation anchors; PointCloud capped at 2000 points"""
     extra = None
@@ -195,7 +209,7 @@ def to_glb(path, out):
         for v, t in vt:
             _add(batches, (li, col, 4), T(v), t.ravel(), oi, yup); st['meshed'] += 1
         if not vt or partial:
-            w = _wire(g) if ot not in _MARKER_TYPES else _markers(g, ot, msize)
+            w = _wire(g) if ot not in _MARKER_TYPES else _markers(g, ot, msize) + (_dimlines(m, g) if ot == 'Annotation' else [])
             for p in w:
                 idx = np.array([(i, i + 1) for i in range(len(p) - 1)]).ravel()
                 _add(batches, (li, col, 1), T(p), idx, oi, yup)
