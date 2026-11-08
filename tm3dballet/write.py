@@ -33,6 +33,15 @@ def _pd(p):
     f = getattr(p, 'RdkXml', None)
     return hashlib.sha1((f() if callable(f) else type(p).__name__).encode()).hexdigest()[:12]
 
+def _us(o):
+    try: return sorted((str(k), str(v)) for k, v in o.GetUserStrings())
+    except Exception: return ['unreadable']
+
+def _doc_strings(m):
+    # rhino3dm exposes only the count of document user text (no keys/values), so count is all we can compare
+    try: return ['n=%d' % m.Strings.DocumentUserTextCount, 'len=%d' % len(m.Strings)]
+    except Exception: return ['unreadable']
+
 def snapshot(m):
     """canonical, comparable description of a File3dm model (ids, geometry hashes, tables)"""
     objs = {}
@@ -40,13 +49,14 @@ def snapshot(m):
         a = o.Attributes; g = o.Geometry
         objs[str(a.Id)] = {'type': str(g.ObjectType) if g is not None else None, 'geom': _fp(g) if g is not None else None,
                            'name': a.Name, 'layer': a.LayerIndex, 'color': [int(x) for x in a.ObjectColor], 'csrc': str(a.ColorSource),
-                           'mat': a.MaterialIndex, 'visible': a.Visible, 'mode': str(a.Mode)}
+                           'ustr': _us(a), 'gstr': _us(g) if g is not None else None, 'mat': a.MaterialIndex, 'visible': a.Visible, 'mode': str(a.Mode)}
     tab = lambda t, f: [f(x) for x in t]
     return {'version': m.ArchiveVersion, 'objects': objs, 'n_objects': len(m.Objects),
-            'layers': tab(m.Layers, lambda l: [str(l.Id), l.Name, [int(x) for x in l.Color], str(l.ParentLayerId), l.GetPersistentVisibility()]),
+            'layers': tab(m.Layers, lambda l: [str(l.Id), l.Name, [int(x) for x in l.Color], str(l.ParentLayerId), l.GetPersistentVisibility(), _us(l)]),
             'materials': tab(m.Materials, lambda x: [str(x.Id), x.Name, [int(c) for c in x.DiffuseColor], x.Transparency]),
             'idefs': tab(m.InstanceDefinitions, lambda d: [str(d.Id), d.Name, sorted(str(i) for i in d.GetObjectIds())]),
             'groups': len(m.Groups), 'views': len(m.Views), 'linetypes': len(m.Linetypes), 'bitmaps': len(m.Bitmaps),
+            'docstrings': _doc_strings(m),
             'units': str(m.Settings.ModelUnitSystem),
             'plugin': [_pd(p) for p in m.PlugInData],
             'rdk': hashlib.sha1(str(m.RdkXml()).encode()).hexdigest()[:12]}

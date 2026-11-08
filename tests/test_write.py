@@ -44,3 +44,17 @@ def test_lossy_files_are_refused_and_untouched(name, tmp_path):
     lay = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
+
+
+def test_user_strings_in_snapshot_and_dropped_string_detected():
+    import rhino3dm as R
+    from tm3dballet import write
+    m = R.File3dm(); m.Settings.ModelUnitSystem = R.UnitSystem.Meters
+    a = R.ObjectAttributes(); a.SetUserString('k', 'v')
+    m.Objects.AddPoint(R.Point3d(1, 2, 3), a)
+    s1 = write.snapshot(m)
+    o = next(iter(s1['objects'].values()))
+    assert o['ustr'] == [('k', 'v')]
+    m.Objects[0].Attributes.SetUserString('k', 'changed')
+    ds = write.diff(s1, write.snapshot(m))
+    assert any('ustr' in d for d in ds)
