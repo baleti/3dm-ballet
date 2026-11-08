@@ -255,3 +255,19 @@ def test_parallel_processes_serialise(tmp_path):
     assert outs.count('ok') == 1, outs
     m = R.File3dm.Read(f); assert m is not None and m.Layers[0].Name in ['n%d' % i for i in range(8)]
     assert not os.path.exists(f + '.3dmballet.lock')
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_real_rename_accepted_or_refused_never_damaged(f, tmp_path):
+    """real edit on every public sample: either saved correctly (name changed, object count and table census kept) or refused with bytes identical"""
+    import hashlib
+    t = str(tmp_path / 'a.3dm'); shutil.copy(f, t); h = hashlib.sha256(open(t, 'rb').read()).hexdigest()
+    m = R.File3dm.Read(t)
+    if m is None: pytest.skip('unreadable')
+    lay = m.Layers[0].Name; n0 = len(m.Objects)
+    try: write.rename_layer(t, lay, lay + '_r')
+    except write.Refused:
+        assert hashlib.sha256(open(t, 'rb').read()).hexdigest() == h; return
+    n = R.File3dm.Read(t)
+    assert n.Layers[0].Name == lay + '_r' and len(n.Objects) == n0
+    if m.ArchiveVersion >= 50: assert write.census_loss(write.census(f), write.census(t)) == []
