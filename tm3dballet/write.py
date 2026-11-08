@@ -65,6 +65,27 @@ def _view(v):
     except Exception:
         return ['unreadable', _h(v)]
 
+def _g(f, d='?'):
+    try: return f()
+    except Exception: return d
+
+def _lt(x): return [str(x.Id), x.Name, x.SegmentCount, _r(x.PatternLength), [str(x.GetSegment(i)) for i in range(x.SegmentCount)] if x.SegmentCount < 64 else '?', _us(x)]
+
+def _extra(m):
+    st = m.Settings
+    # NOTE: touching Linetype objects segfaults/aborts rhino3dm at interpreter exit (wrapper lifetime bug), so only len() is used
+    return {'linetypes_n': len(m.Linetypes),
+            'groups': [_g(lambda x=x: [str(x.Id), x.Name, _us(x)]) for x in m.Groups],
+            'bitmaps': [_g(lambda x=x: [str(x.Id), x.Width, x.Height, x.BitsPerPixel, x.SizeOfImage]) for x in m.Bitmaps],
+            'dimstyles': [_g(lambda x=x: [x.Name, _us(x)]) for x in m.DimStyles],
+            'tol': _g(lambda: [_r(st.ModelAbsoluteTolerance), _r(st.ModelAngleToleranceRadians), _r(st.ModelRelativeTolerance),
+                               _r(st.PageAbsoluteTolerance), str(st.PageUnitSystem), [_r(c) for c in (st.ModelBasePoint.X, st.ModelBasePoint.Y, st.ModelBasePoint.Z)]])}
+
+def _layer(l):
+    return [str(l.Id), l.Name, [int(x) for x in l.Color], str(l.ParentLayerId), l.GetPersistentVisibility(), _us(l),
+            _g(lambda: l.GetPersistentLocking()), _g(lambda: l.LinetypeIndex), _g(lambda: [int(x) for x in l.PlotColor]),
+            _g(lambda: _r(l.PlotWeight)), _g(lambda: l.RenderMaterialIndex), _g(lambda: l.IgesLevel), _g(lambda: l.Expanded)]
+
 def snapshot(m):
     """canonical, comparable description of a File3dm model (ids, geometry hashes, tables)"""
     objs = {}
@@ -72,13 +93,14 @@ def snapshot(m):
         a = o.Attributes; g = o.Geometry
         objs[str(a.Id)] = {'type': str(g.ObjectType) if g is not None else None, 'geom': _fp(g) if g is not None else None,
                            'name': a.Name, 'layer': a.LayerIndex, 'color': [int(x) for x in a.ObjectColor], 'csrc': str(a.ColorSource),
-                           'ustr': _us(a), 'gstr': _us(g) if g is not None else None, 'mat': a.MaterialIndex, 'visible': a.Visible, 'mode': str(a.Mode)}
+                           'ustr': _us(a), 'gstr': _us(g) if g is not None else None, 'mat': a.MaterialIndex, 'x': _g(lambda: [a.LinetypeIndex, str(a.LinetypeSource), str(a.MaterialSource), [int(c) for c in a.PlotColor], str(a.PlotColorSource), _r(a.PlotWeight), str(a.PlotWeightSource), a.GroupCount, [int(i) for i in a.GetGroupList()] if a.GroupCount else [], a.DisplayOrder, a.CastsShadows, a.ReceivesShadows, a.WireDensity, a.Url, str(a.ObjectDecoration), str(a.ActiveSpace), str(a.ViewportId)]), 'visible': a.Visible, 'mode': str(a.Mode)}
     tab = lambda t, f: [f(x) for x in t]
     return {'version': m.ArchiveVersion, 'objects': objs, 'n_objects': len(m.Objects),
-            'layers': tab(m.Layers, lambda l: [str(l.Id), l.Name, [int(x) for x in l.Color], str(l.ParentLayerId), l.GetPersistentVisibility(), _us(l)]),
+            'layers': tab(m.Layers, _layer),
             'materials': tab(m.Materials, lambda x: [str(x.Id), x.Name, [int(c) for c in x.DiffuseColor], x.Transparency]),
             'idefs': tab(m.InstanceDefinitions, lambda d: [str(d.Id), d.Name, sorted(str(i) for i in d.GetObjectIds())]),
             'groups': len(m.Groups), 'views': [_view(v) for v in m.Views], 'named_views': [_view(v) for v in m.NamedViews], 'linetypes': len(m.Linetypes), 'bitmaps': len(m.Bitmaps),
+            'extra': _extra(m),
             'docstrings': _doc_strings(m),
             'units': str(m.Settings.ModelUnitSystem),
             'plugin': [_pd(p) for p in m.PlugInData],
