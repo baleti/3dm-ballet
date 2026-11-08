@@ -60,3 +60,17 @@ def test_backup_failure_refuses_before_replace(tmp_path, monkeypatch):
     with pytest.raises(write.Refused, match='backup failed'): write.edit_file(str(f), lambda m: None, lambda d: True)
     monkeypatch.undo()
     assert f.read_bytes() == before
+
+
+def test_probe_cache_hits_and_invalidates(tmp_path, monkeypatch):
+    f = _good(tmp_path); calls = []
+    real = probe._probe
+    monkeypatch.setattr(probe, '_probe', lambda p, t: (calls.append(p), real(p, t))[1])
+    probe._OK.clear()
+    probe.probe(str(f)); probe.probe(str(f)); assert len(calls) == 1
+    with open(str(f), 'ab') as h: h.write(b'\0')          # file changed: must re-probe
+    probe.probe(str(f)); assert len(calls) == 2
+    h2 = tmp_path / 'hang.3dm'; h2.write_bytes(open(HANG, 'rb').read())
+    for _ in range(2):
+        with pytest.raises(probe.Unreadable): probe.probe(str(h2), timeout=5)
+    assert len(calls) == 4                                  # failures are never cached
