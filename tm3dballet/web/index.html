@@ -1,5 +1,5 @@
 <!doctype html><meta charset=utf-8><title>3dm-ballet</title>
-<style>html,body{margin:0;height:100%;background:#1c1f24;color:#ddd;font:13px sans-serif}#i{position:fixed;left:8px;top:8px;white-space:pre}</style>
+<style>html,body{margin:0;height:100%;background:#aeb4bc;color:#111;font:13px sans-serif}#i{position:fixed;left:8px;top:8px;white-space:pre}</style>
 <div id=i>loading...</div>
 <script type=importmap>{"imports":{"three":"/three/three.module.js","three/addons/":"/three/"}}</script>
 <script type=module>
@@ -7,7 +7,7 @@ import * as T from 'three';
 import {GLTFLoader} from '/three/loaders/GLTFLoader.js';
 import {OrbitControls} from '/three/controls/OrbitControls.js';
 const r=new T.WebGLRenderer({antialias:true});r.setSize(innerWidth,innerHeight);document.body.appendChild(r.domElement);
-const s=new T.Scene();s.background=new T.Color(0x1c1f24);s.add(new T.HemisphereLight(0xffffff,0x444455,2.2));
+const s=new T.Scene();s.background=new T.Color(0xaeb4bc);s.add(new T.HemisphereLight(0xffffff,0x444455,2.2));
 const d=new T.DirectionalLight(0xffffff,1.5);d.position.set(1,2,1.5);s.add(d);
 const cam=new T.PerspectiveCamera(45,innerWidth/innerHeight,.01,1e6);
 new GLTFLoader().load('/model.glb',g=>{s.add(g.scene);const b=new T.Box3().setFromObject(g.scene),c=b.getCenter(new T.Vector3()),z=b.getSize(new T.Vector3()).length()||1;
