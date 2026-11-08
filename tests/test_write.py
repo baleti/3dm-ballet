@@ -225,3 +225,33 @@ def test_unknown_record_in_object_table_refused(tmp_path):
     before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before
+
+
+def test_lock_blocks_concurrent_save_and_is_released(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    open(f + '.3dmballet.lock', 'w').write('999')
+    with pytest.raises(write.Refused, match='in progress'): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before
+    os.utime(f + '.3dmballet.lock', (1, 1))            # stale lock (killed save) is broken
+    write.rename_layer(f, lay, lay + '_x')
+    assert not os.path.exists(f + '.3dmballet.lock') and R.File3dm.Read(f).Layers[0].Name == lay + '_x'
+
+
+def test_lock_released_after_refusal(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    with pytest.raises(write.Refused): write.rename_layer(f, 'no such layer', 'x')
+    assert not os.path.exists(f + '.3dmballet.lock')
+
+
+def test_parallel_processes_serialise(tmp_path):
+    """8 processes rename the same layer to different names at once: file stays valid, equals exactly one of the names"""
+    import subprocess, sys
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); lay = R.File3dm.Read(f).Layers[0].Name
+    root = os.path.dirname(os.path.dirname(__file__))
+    code = ('import sys\nsys.path[:0]=[%r,%r]\nfrom tm3dballet import write\n'
+            'try: write.rename_layer(%r,%r,"n"+sys.argv[1]); print("ok")\nexcept write.Refused as e: print("refused")\n') % (root, os.path.join(root, '.deps'), f, lay)
+    ps = [subprocess.Popen([sys.executable, '-I', '-c', code, str(i)], stdout=subprocess.PIPE) for i in range(8)]
+    outs = [p.communicate(timeout=120)[0].decode().strip() for p in ps]
+    assert outs.count('ok') == 1, outs
+    m = R.File3dm.Read(f); assert m is not None and m.Layers[0].Name in ['n%d' % i for i in range(8)]
+    assert not os.path.exists(f + '.3dmballet.lock')

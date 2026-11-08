@@ -161,7 +161,32 @@ def gate(m):
     if m.ArchiveVersion not in (50, 60, 70, 80): why.append('archive version %s not writable' % m.ArchiveVersion)
     return why
 
+LOCK_STALE_S = 600
+
+def _lock(path):
+    """exclusive lock file next to the target (portable, O_EXCL); a lock older than LOCK_STALE_S is treated as left by a killed save"""
+    import time
+    lk = path + '.3dmballet.lock'
+    for _ in range(2):
+        try:
+            fd = os.open(lk, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600); os.write(fd, str(os.getpid()).encode()); os.close(fd); return lk
+        except FileExistsError:
+            try:
+                if time.time() - os.stat(lk).st_mtime > LOCK_STALE_S: os.remove(lk); continue
+            except OSError: pass
+            raise Refused('another save of this file is in progress (lock %s)' % os.path.basename(lk))
+        except OSError as e: raise Refused('cannot create lock file: %s' % e)
+    raise Refused('cannot take lock')
+
 def edit_file(path, edit, expect, backup=True):
+    path = os.path.realpath(path)
+    lk = _lock(path)
+    try: return _edit_file(path, edit, expect, backup)
+    finally:
+        try: os.remove(lk)
+        except OSError: pass
+
+def _edit_file(path, edit, expect, backup=True):
     """edit(model) mutates the model; expect(diffs) -> True when the diffs are exactly the intended ones.
     Original is replaced only if every check passes. Returns list of diffs applied."""
     path = os.path.realpath(path)   # never replace a symlink itself; edit its target in place of the link
