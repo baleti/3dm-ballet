@@ -44,9 +44,19 @@ def _h(o):
     except Exception: s = repr(o)
     return hashlib.sha1(s.encode()).hexdigest()[:16]
 
+def _canon_xml(x):
+    """attribute order is not significant in XML (the library re-serialises RDK XML with different attribute order);
+    compare the parsed tree with attributes sorted. Unparseable text falls back to the raw string."""
+    import xml.etree.ElementTree as ET
+    try:
+        def n(e): return [e.tag, sorted(e.attrib.items()), (e.text or '').strip(), (e.tail or '').strip(), [n(c) for c in e]]
+        return repr(n(ET.fromstring(x.encode('utf-8', 'surrogatepass') if isinstance(x, str) else x)))
+    except Exception:
+        return x
+
 def _pd(p):
     f = getattr(p, 'RdkXml', None)
-    return hashlib.sha1((f() if callable(f) else type(p).__name__).encode()).hexdigest()[:12]
+    return hashlib.sha1(_canon_xml(f() if callable(f) else type(p).__name__).encode('utf-8', 'surrogatepass')).hexdigest()[:12]
 
 def _us(o):
     try: return sorted((str(k), str(v)) for k, v in o.GetUserStrings())
@@ -104,7 +114,7 @@ def snapshot(m):
             'docstrings': _doc_strings(m),
             'units': str(m.Settings.ModelUnitSystem),
             'plugin': [_pd(p) for p in m.PlugInData],
-            'rdk': hashlib.sha1(str(m.RdkXml()).encode()).hexdigest()[:12]}
+            'rdk': hashlib.sha1(_canon_xml(str(m.RdkXml())).encode('utf-8', 'surrogatepass')).hexdigest()[:12]}
 
 def diff(a, b):
     """list of human-readable differences between two snapshots"""

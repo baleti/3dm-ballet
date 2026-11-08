@@ -2,7 +2,7 @@ import glob, os, shutil, pytest
 import rhino3dm as R
 from tm3dballet import write
 D = os.path.join(os.path.dirname(__file__), 'data')
-FILES = sorted(glob.glob(os.path.join(D, '*.3dm')))
+FILES = sorted(glob.glob(os.path.join(D, '*.3dm')) + glob.glob(os.path.join(D, '..', 'data_ext', '*.3dm')))
 
 def names(p): return [l.Name for l in R.File3dm.Read(p).Layers]
 
@@ -27,6 +27,7 @@ def test_gate_catches_unintended_change(tmp_path):
 
 # files whose no-edit rewrite by rhino3dm is NOT equivalent: the gate must refuse them (regression set, severity 1 if ever accepted)
 KNOWN_LOSSY = {'V5-v5_example_file.3dm': 'annotation geometry differs after rewrite',
+               'V5-v5_extrusions.3dm': 'legacy RDK xml upgraded (attributes added) on rewrite',
                'V7-v7_rhino_logo_annotations.3dm': 'one opaque plug-in data block dropped'}
 
 @pytest.mark.parametrize('f', FILES, ids=os.path.basename)
@@ -34,8 +35,9 @@ def test_noedit_roundtrip_equivalent(f, tmp_path):
     """load, save with no edit, re-read: semantic snapshot must be identical, else the file must be a known lossy case"""
     m = R.File3dm.Read(f)
     if write.gate(m): pytest.skip('gate refuses: %s' % write.gate(m))
+    s0 = write.snapshot(m)   # BEFORE Write: Write mutates RDK state in memory, a later snapshot would mask loss
     o = str(tmp_path / 'o.3dm'); assert m.Write(o, m.ArchiveVersion)
-    d = write.diff(write.snapshot(m), write.snapshot(R.File3dm.Read(o)))
+    d = write.diff(s0, write.snapshot(R.File3dm.Read(o)))
     assert (d != []) == (os.path.basename(f) in KNOWN_LOSSY), d[:3]
 
 @pytest.mark.parametrize('name', sorted(KNOWN_LOSSY))
