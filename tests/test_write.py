@@ -27,6 +27,7 @@ def test_gate_catches_unintended_change(tmp_path):
 
 # files whose no-edit rewrite by rhino3dm is NOT equivalent: the gate must refuse them (regression set, severity 1 if ever accepted)
 KNOWN_LOSSY = {'V5-v5_example_file.3dm': 'annotation geometry differs after rewrite',
+               'rh_sphereDecals.3dm': 'embedded file paths rewritten (backslash/drive normalised) on rewrite',
                'V5-v5_extrusions.3dm': 'legacy RDK xml upgraded (attributes added) on rewrite',
                'V7-v7_rhino_logo_annotations.3dm': 'one opaque plug-in data block dropped'}
 
@@ -42,7 +43,7 @@ def test_noedit_roundtrip_equivalent(f, tmp_path):
 
 @pytest.mark.parametrize('name', sorted(KNOWN_LOSSY))
 def test_lossy_files_are_refused_and_untouched(name, tmp_path):
-    f = str(tmp_path / name); shutil.copy(os.path.join(D, name), f); before = open(f, 'rb').read()
+    f = str(tmp_path / name); shutil.copy(next(q for q in FILES if os.path.basename(q) == name), f); before = open(f, 'rb').read()
     lay = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
@@ -333,3 +334,17 @@ def test_settings_payload_change_without_settings_edit_is_refused(tmp_path, monk
     monkeypatch.setattr(write, 'stable_payloads', fake)
     with pytest.raises(write.Refused, match='settings records'): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before
+
+
+def test_no_unreadable_placeholders_in_snapshots():
+    """a '?' or 'unreadable' placeholder means a field compares nothing (this hid the DocumentUserTextCount bug)"""
+    bad = []
+    def walk(x, p):
+        if isinstance(x, dict): [walk(v, p + '/' + k) for k, v in x.items() if p != '/objects' or True]
+        elif isinstance(x, (list, tuple)): [walk(v, p + '[]') for v in x]
+        elif x in ('?', 'unreadable'): bad.append(p)
+    for f in FILES:
+        m = R.File3dm.Read(f)
+        if m is None or write.gate(m): continue
+        walk(write.snapshot(m), '')
+    assert sorted(set(bad)) == [], sorted(set(bad))

@@ -86,7 +86,7 @@ def _extra(m):
     # NOTE: touching Linetype objects segfaults/aborts rhino3dm at interpreter exit (wrapper lifetime bug), so only len() is used
     return {'linetypes_n': len(m.Linetypes),
             'groups': [_g(lambda x=x: [str(x.Id), x.Name, _us(x)]) for x in m.Groups],
-            'bitmaps': [_g(lambda x=x: [str(x.Id), x.Width, x.Height, x.BitsPerPixel, x.SizeOfImage]) for x in m.Bitmaps],
+            'bitmaps': [_g(lambda x=x: [str(x.Id), x.Width, x.Height, x.BitsPerPixel, x.SizeOfImage, _h(x)]) for x in m.Bitmaps],
             'dimstyles': [_g(lambda x=x: [x.Name, _us(x)]) for x in m.DimStyles],
             'tol': _g(lambda: [_r(st.ModelAbsoluteTolerance), _r(st.ModelAngleToleranceRadians), _r(st.ModelRelativeTolerance),
                                _r(st.PageAbsoluteTolerance), str(st.PageUnitSystem), [_r(c) for c in (st.ModelBasePoint.X, st.ModelBasePoint.Y, st.ModelBasePoint.Z)]])}
@@ -108,9 +108,10 @@ def snapshot(m):
     return {'version': m.ArchiveVersion, 'objects': objs, 'n_objects': len(m.Objects),
             'layers': tab(m.Layers, _layer),
             'materials': tab(m.Materials, lambda x: [str(x.Id), x.Name, [int(c) for c in x.DiffuseColor], x.Transparency]),
-            'idefs': tab(m.InstanceDefinitions, lambda d: [str(d.Id), d.Name, sorted(str(i) for i in d.GetObjectIds())]),
+            'idefs': tab(m.InstanceDefinitions, lambda d: [str(d.Id), d.Name, sorted(str(i) for i in d.GetObjectIds()), _g(lambda: d.Description), _g(lambda: str(d.UpdateType)), _g(lambda: str(d.SourceArchive)), _us(d)]),
             'groups': len(m.Groups), 'views': [_view(v) for v in m.Views], 'named_views': [_view(v) for v in m.NamedViews], 'linetypes': len(m.Linetypes), 'bitmaps': len(m.Bitmaps),
             'extra': _extra(m),
+            'embedded': _g(lambda: [len(m.EmbeddedFiles), sorted(str(p) for p in m.EmbeddedFilePaths()), [hashlib.sha1(str(m.GetEmbeddedFileAsBase64(p)).encode()).hexdigest()[:12] for p in sorted(str(p) for p in m.EmbeddedFilePaths())]]),
             'header': [_g(lambda k=k: str(getattr(m, k))) for k in ('ApplicationName', 'ApplicationUrl', 'ApplicationDetails', 'CreatedBy', 'LastEditedBy', 'Created', 'LastEdited')],
             'docstrings': _doc_strings(m),
             'units': str(m.Settings.ModelUnitSystem),
