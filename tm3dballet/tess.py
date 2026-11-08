@@ -1,5 +1,5 @@
 """Fallback tessellation for brep faces without a stored render mesh.
-Planar faces: ear clipping of the outer loop (faces with holes are refused).
+Planar faces: ear clipping of the outer loop (holes are bridged into the outer loop).
 Untrimmed 4-sided faces: surface grid. Everything else returns None (caller draws edges)."""
 import numpy as np
 
@@ -51,7 +51,9 @@ def grid(face, nu=16, nv=16):
 def _loop_poly(brep, loop, n=24):
     pts = []
     for t in loop.Trims:
-        e = brep.Edges[t.EdgeIndex]; d = e.Domain
+        e = brep.Edges[t.EdgeIndex] if t.EdgeIndex >= 0 else None
+        if e is None: continue                                   # singular trim (no 3D edge): zero length in 3D
+        d = e.Domain
         k = 2 if e.IsLinear() else max(2, n * max(1, e.SpanCount))
         s = [e.PointAt(d.T0 + (d.T1 - d.T0) * i / (k - 1)) for i in range(k)]
         s = [(p.X, p.Y, p.Z) for p in s]
@@ -59,12 +61,52 @@ def _loop_poly(brep, loop, n=24):
         pts += s[:-1]
     return np.array(pts, float)
 
+def _proj(P, n):
+    a = int(np.argmax(np.abs(n))); ax = [i for i in range(3) if i != a]
+    return P[:, ax]
+
+def _sarea(Q): return 0.5 * sum(Q[i, 0] * Q[(i + 1) % len(Q), 1] - Q[(i + 1) % len(Q), 0] * Q[i, 1] for i in range(len(Q)))
+
+def _segx(a, b, c, d):
+    """proper intersection of 2D segments ab and cd"""
+    def o(p, q, r): return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    return o(a, b, c) * o(a, b, d) < -1e-18 and o(c, d, a) * o(c, d, b) < -1e-18
+
+def merge_holes(P, holes):
+    """bridge each hole polygon (Nx3, coplanar with P) into the outer polygon; returns one Mx3 polygon with duplicated
+    bridge vertices, or None if a bridge cannot be found"""
+    n = _area_normal(P); l = np.linalg.norm(n)
+    if l < 1e-12: return None
+    n /= l; out = P.copy()
+    Q0 = _proj(P, n)
+    if _sarea(Q0) < 0: out = out[::-1].copy()                      # outer counter-clockwise
+    for H in sorted(holes, key=lambda h: -np.max(_proj(h, n)[:, 0])):
+        H = np.asarray(H, float)
+        if _sarea(_proj(H, n)) > 0: H = H[::-1]                    # holes clockwise
+        Qo, Qh = _proj(out, n), _proj(H, n); done = False
+        pairs = sorted(((np.linalg.norm(Qo[i] - Qh[j]), i, j) for i in range(len(out)) for j in range(len(H))))
+        allseg = [(Qo[k], Qo[(k + 1) % len(Qo)]) for k in range(len(Qo))] + [(Qh[k], Qh[(k + 1) % len(Qh)]) for k in range(len(Qh))]
+        for _, i, j in pairs:
+            if any(_segx(Qo[i], Qh[j], a, b) for a, b in allseg): continue
+            out = np.vstack([out[:i + 1], np.roll(H, -j, axis=0), H[j:j + 1], out[i:i + 1], out[i + 1:]]); done = True; break
+        if not done: return None
+    return out
+
 def tess_face(brep, face):
     """-> (verts, tris) or None"""
     loops = list(face.Loops)
-    if len(loops) != 1: return None
     L = face.OuterLoop; P = _loop_poly(brep, L)
     if len(P) < 3: return None
+    if len(loops) != 1:
+        if not face.IsPlanar(): return None
+        kinds = [str(l.LoopType).split('.')[-1] for l in loops]
+        if kinds.count('Outer') != 1 or any(k not in ('Outer', 'Inner') for k in kinds): return None   # slit/unknown loops: not handled
+        holes = [_loop_poly(brep, l) for l, k in zip(loops, kinds) if k == 'Inner']
+        if any(len(h) < 3 for h in holes): return None
+        M = merge_holes(P, holes)
+        if M is None: return None
+        t = ear_clip(M)
+        return None if t is None or len(t) == 0 else (M, t)
     if face.IsPlanar():
         t = ear_clip(P)
         return None if t is None or len(t) == 0 else (P, t)
