@@ -5,7 +5,22 @@ import hashlib, json, os, shutil, tempfile
 import rhino3dm as R
 from . import probe
 
+WRITE_TIMEOUT = 120
+
 class Refused(Exception): pass
+
+def _guarded_write(m, tmp, ver, timeout=120):
+    """m.Write in a daemon thread so a native stall turns into Refused instead of a frozen save.
+    (Only effective if the native call releases the GIL; if it does not, nothing in-process can help.)"""
+    import threading
+    box = {}
+    def run():
+        try: box['ok'] = m.Write(tmp, ver)
+        except BaseException as e: box['err'] = e
+    t = threading.Thread(target=run, daemon=True); t.start(); t.join(timeout)
+    if t.is_alive(): raise Refused('write timed out after %ss' % timeout)
+    if 'err' in box: raise Refused('write raised %s' % box['err'])
+    return box.get('ok')
 
 def _r(x): return round(float(x), 9)
 
@@ -105,7 +120,7 @@ def edit_file(path, edit, expect, backup=True):
     try: fd, tmp = tempfile.mkstemp(suffix='.3dm', dir=d); os.close(fd)
     except OSError as e: raise Refused('cannot create temp file next to source: %s' % e)
     try:
-        if not m.Write(tmp, ver): raise Refused('write failed')
+        if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)

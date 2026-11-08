@@ -74,3 +74,18 @@ def test_probe_cache_hits_and_invalidates(tmp_path, monkeypatch):
     for _ in range(2):
         with pytest.raises(probe.Unreadable): probe.probe(str(h2), timeout=5)
     assert len(calls) == 4                                  # failures are never cached
+
+
+def test_stalled_native_write_refused_original_intact(tmp_path, monkeypatch):
+    import time, rhino3dm as R
+    f = _good(tmp_path); before = f.read_bytes()
+    monkeypatch.setattr(write, 'WRITE_TIMEOUT', 1)
+    class Slow:
+        def __init__(self, m): self._m = m
+        def __getattr__(self, n): return getattr(self._m, n)
+        def Write(self, p, v): time.sleep(5); return True
+    real = R.File3dm.Read
+    monkeypatch.setattr(write.R.File3dm, 'Read', staticmethod(lambda p: Slow(real(p))))
+    with pytest.raises(write.Refused, match='timed out'): write.edit_file(str(f), lambda m: None, lambda d: True)
+    monkeypatch.undo(); time.sleep(5)
+    assert f.read_bytes() == before and [p.name for p in tmp_path.iterdir()] == ['a.3dm']
