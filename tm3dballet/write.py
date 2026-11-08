@@ -64,7 +64,7 @@ def _us(o):
 
 def _doc_strings(m):
     # rhino3dm exposes only the count of document user text (no keys/values), so count is all we can compare
-    try: return ['n=%d' % m.Strings.DocumentUserTextCount, 'len=%d' % len(m.Strings)]
+    try: return ['n=%d' % m.Strings.DocumentUserTextCount(), 'len=%d' % len(m.Strings)]
     except Exception: return ['unreadable']
 
 def _view(v):
@@ -148,6 +148,28 @@ def census(path):
     if stop < len(b): c[('', 'trailing-bytes')] = len(b) - stop   # data after the last chunk; the library does not carry it over
     return c
 
+# settings-table records whose payload bytes were identical after a no-edit rewrite in 100 percent of the 53 public V5+
+# samples (document/render/analysis/etc settings); a difference after an edit that did not touch settings is refused.
+STABLE_PAYLOAD = {('10000015', t) for t in ('20008035', '20008036', '20008039', '2000803a', '20008135', 'a0000038', 'a000003c')} | \
+                 {('10000018', '20008073'), ('10000021', '20008076'), ('10000022', '20008077')}
+
+def stable_payloads(path):
+    """sha1 multiset of payloads for STABLE_PAYLOAD records"""
+    import struct, collections
+    b = open(path, 'rb').read(); c = collections.defaultdict(list); o = 32
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): break
+        q = o + 12
+        while q + 12 <= o + 12 + l:
+            t2, l2 = struct.unpack_from('<Iq', b, q)
+            if l2 < 0 or q + 12 + l2 > o + 12 + l: break
+            k = ('%08x' % t, '%08x' % t2)
+            if k in STABLE_PAYLOAD: c[k].append(hashlib.sha1(b[q + 12:q + 12 + l2]).hexdigest())
+            q += 12 + l2
+        o += 12 + l
+    return {k: sorted(v) for k, v in c.items()}
+
 # record typecodes the library legitimately swaps on rewrite (V6 archive settings/properties record variant)
 CENSUS_SWAP = {'88200080', '99200080'}
 
@@ -179,15 +201,15 @@ def _lock(path):
         except OSError as e: raise Refused('cannot create lock file: %s' % e)
     raise Refused('cannot take lock')
 
-def edit_file(path, edit, expect, backup=True):
+def edit_file(path, edit, expect, backup=True, allow_settings=False):
     path = os.path.realpath(path)
     lk = _lock(path)
-    try: return _edit_file(path, edit, expect, backup)
+    try: return _edit_file(path, edit, expect, backup, allow_settings)
     finally:
         try: os.remove(lk)
         except OSError: pass
 
-def _edit_file(path, edit, expect, backup=True):
+def _edit_file(path, edit, expect, backup=True, allow_settings=False):
     """edit(model) mutates the model; expect(diffs) -> True when the diffs are exactly the intended ones.
     Original is replaced only if every check passes. Returns list of diffs applied."""
     path = os.path.realpath(path)   # never replace a symlink itself; edit its target in place of the link
@@ -219,6 +241,10 @@ def _edit_file(path, edit, expect, backup=True):
         if ver >= 50:
             lost = census_loss(census(path), census(tmp))
             if lost: raise Refused('output has fewer table records than the source: %s' % lost[:4])
+            if not any(d.split()[0] in ('units', 'extra', 'header') for d in diff(before, after)) and not allow_settings:
+                p0, p1 = stable_payloads(path), stable_payloads(tmp)
+                bad = sorted('%s/%s' % k for k in p0 if p1.get(k) != p0[k])
+                if bad: raise Refused('settings records changed by the save although no settings edit was requested: %s' % bad[:4])
         c0 = _g(lambda: m.StartSectionComments, ''); c1 = _g(lambda: m2.StartSectionComments, '')
         if not c1.startswith(c0): raise Refused('file creation comments changed (the library may only append a line)')
         ds = diff(before, after)

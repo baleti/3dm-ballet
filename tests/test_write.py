@@ -308,3 +308,28 @@ def test_snapshot_not_blind_to(name):
         MUTATIONS[name](m)
         if write.diff(a, write.snapshot(m)): hit = True; break
     assert hit
+
+
+def test_doc_user_text_count_is_read():
+    m = R.File3dm.Read(os.path.join(D, 'V7-v7_my_brep.3dm'))
+    assert write._doc_strings(m) != ['unreadable']
+
+
+@pytest.mark.parametrize('f', [p for p in FILES if os.path.basename(p) not in KNOWN_LOSSY], ids=os.path.basename)
+def test_stable_settings_payloads_unchanged_by_rewrite(f, tmp_path):
+    m = R.File3dm.Read(f)
+    if write.gate(m) or m.ArchiveVersion < 50: pytest.skip('gate/old format')
+    o = str(tmp_path / 'o.3dm'); assert m.Write(o, m.ArchiveVersion)
+    assert write.stable_payloads(f) == write.stable_payloads(o)
+
+
+def test_settings_payload_change_without_settings_edit_is_refused(tmp_path, monkeypatch):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    real = write.stable_payloads; n = {'i': 0}
+    def fake(p):
+        d = real(p); n['i'] += 1
+        if n['i'] == 2: d = {k: ['00'] for k in d}      # output side differs
+        return d
+    monkeypatch.setattr(write, 'stable_payloads', fake)
+    with pytest.raises(write.Refused, match='settings records'): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before
