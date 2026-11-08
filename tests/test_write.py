@@ -150,3 +150,13 @@ def test_kill_mid_save_unicode_space_path(tmp_path):
             'write.os.replace = lambda a, b: os._exit(9)\nwrite.rename_layer(%r, %r, "zzz")\n') % (root, os.path.join(root, '.deps'), f, lay)
     assert subprocess.run([sys.executable, '-I', '-c', code], timeout=120).returncode == 9
     assert open(f, 'rb').read() == before
+
+
+def test_source_modified_during_edit_is_not_overwritten(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); lay = R.File3dm.Read(f).Layers[0].Name
+    def edit(m):
+        m.Layers[0].Name = lay + '_x'
+        with open(f, 'ab') as fh: fh.write(b'\0')       # another process touches the source meanwhile
+    with pytest.raises(write.Refused): write.edit_file(f, edit, lambda ds: ds == ['layers differs'])
+    assert open(f, 'rb').read().endswith(b'\0') and not os.path.exists(f + '.bak')
+    assert [p for p in os.listdir(tmp_path) if p.startswith('.3dmballet')] == []
