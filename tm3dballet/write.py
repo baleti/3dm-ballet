@@ -42,6 +42,14 @@ def _doc_strings(m):
     try: return ['n=%d' % m.Strings.DocumentUserTextCount, 'len=%d' % len(m.Strings)]
     except Exception: return ['unreadable']
 
+def _view(v):
+    try:
+        vp = v.Viewport; c = lambda p: (_r(p.X), _r(p.Y), _r(p.Z))
+        return [v.Name, str(vp.Id), c(vp.CameraLocation), c(vp.CameraDirection), c(vp.CameraUp), bool(vp.IsParallelProjection),
+                _r(vp.Camera35mmLensLength) if vp.IsPerspectiveProjection else 0.0, _us(vp), v.WallpaperName]
+    except Exception:
+        return ['unreadable', _h(v)]
+
 def snapshot(m):
     """canonical, comparable description of a File3dm model (ids, geometry hashes, tables)"""
     objs = {}
@@ -55,7 +63,7 @@ def snapshot(m):
             'layers': tab(m.Layers, lambda l: [str(l.Id), l.Name, [int(x) for x in l.Color], str(l.ParentLayerId), l.GetPersistentVisibility(), _us(l)]),
             'materials': tab(m.Materials, lambda x: [str(x.Id), x.Name, [int(c) for c in x.DiffuseColor], x.Transparency]),
             'idefs': tab(m.InstanceDefinitions, lambda d: [str(d.Id), d.Name, sorted(str(i) for i in d.GetObjectIds())]),
-            'groups': len(m.Groups), 'views': len(m.Views), 'linetypes': len(m.Linetypes), 'bitmaps': len(m.Bitmaps),
+            'groups': len(m.Groups), 'views': [_view(v) for v in m.Views], 'named_views': [_view(v) for v in m.NamedViews], 'linetypes': len(m.Linetypes), 'bitmaps': len(m.Bitmaps),
             'docstrings': _doc_strings(m),
             'units': str(m.Settings.ModelUnitSystem),
             'plugin': [_pd(p) for p in m.PlugInData],

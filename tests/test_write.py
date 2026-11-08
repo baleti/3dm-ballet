@@ -58,3 +58,17 @@ def test_user_strings_in_snapshot_and_dropped_string_detected():
     m.Objects[0].Attributes.SetUserString('k', 'changed')
     ds = write.diff(s1, write.snapshot(m))
     assert any('ustr' in d for d in ds)
+
+
+def test_view_change_detected():
+    import rhino3dm as R, glob, os
+    from tm3dballet import write
+    f = os.path.join(os.path.dirname(__file__), 'data', 'V7-v7_my_viewports.3dm')
+    m = R.File3dm.Read(f); s1 = write.snapshot(m)
+    assert len(s1['views']) == 7 and s1['views'][0][0] != 'unreadable'
+    s3 = dict(s1); s3['views'] = [list(v) for v in s1['views']]; s3['views'][2][2] = (9.0, 9.0, 9.0)  # camera moved
+    assert any('views' in d for d in write.diff(s1, s3))
+    other = write.snapshot(R.File3dm.Read(os.path.join(os.path.dirname(f), 'V8-v8_caps_and_joins.3dm')))
+    assert any('views' in d for d in write.diff(s1, other))
+    m2 = R.File3dm.Read(f)
+    assert write.diff(s1, write.snapshot(m2)) == []
