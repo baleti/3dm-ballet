@@ -111,6 +111,7 @@ def snapshot(m):
             'idefs': tab(m.InstanceDefinitions, lambda d: [str(d.Id), d.Name, sorted(str(i) for i in d.GetObjectIds())]),
             'groups': len(m.Groups), 'views': [_view(v) for v in m.Views], 'named_views': [_view(v) for v in m.NamedViews], 'linetypes': len(m.Linetypes), 'bitmaps': len(m.Bitmaps),
             'extra': _extra(m),
+            'header': [_g(lambda k=k: str(getattr(m, k))) for k in ('ApplicationName', 'ApplicationUrl', 'ApplicationDetails', 'CreatedBy', 'LastEditedBy', 'Created', 'LastEdited')],
             'docstrings': _doc_strings(m),
             'units': str(m.Settings.ModelUnitSystem),
             'plugin': [_pd(p) for p in m.PlugInData],
@@ -218,6 +219,8 @@ def _edit_file(path, edit, expect, backup=True):
         if ver >= 50:
             lost = census_loss(census(path), census(tmp))
             if lost: raise Refused('output has fewer table records than the source: %s' % lost[:4])
+        c0 = _g(lambda: m.StartSectionComments, ''); c1 = _g(lambda: m2.StartSectionComments, '')
+        if not c1.startswith(c0): raise Refused('file creation comments changed (the library may only append a line)')
         ds = diff(before, after)
         if not expect(ds): raise Refused('unexpected differences: %s' % ds[:5])
         st1 = os.stat(path)

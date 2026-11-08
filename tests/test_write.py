@@ -271,3 +271,40 @@ def test_real_rename_accepted_or_refused_never_damaged(f, tmp_path):
     n = R.File3dm.Read(t)
     assert n.Layers[0].Name == lay + '_r' and len(n.Objects) == n0
     if m.ArchiveVersion >= 50: assert write.census_loss(write.census(f), write.census(t)) == []
+
+
+def _A(m): return m.Objects[0].Attributes
+
+MUTATIONS = {
+    'obj name': lambda m: setattr(_A(m), 'Name', 'zzz'),
+    'obj layer': lambda m: setattr(_A(m), 'LayerIndex', _A(m).LayerIndex + 1),
+    'obj color': lambda m: setattr(_A(m), 'ObjectColor', (1, 2, 3, 255)),
+    'obj visible': lambda m: setattr(_A(m), 'Visible', not _A(m).Visible),
+    'obj material idx': lambda m: setattr(_A(m), 'MaterialIndex', _A(m).MaterialIndex + 1),
+    'obj linetype idx': lambda m: setattr(_A(m), 'LinetypeIndex', _A(m).LinetypeIndex + 1),
+    'obj plotweight': lambda m: setattr(_A(m), 'PlotWeight', _A(m).PlotWeight + 0.5),
+    'obj userstring': lambda m: _A(m).SetUserString('k', 'v'),
+    'obj shadows': lambda m: setattr(_A(m), 'CastsShadows', not _A(m).CastsShadows),
+    'obj url': lambda m: setattr(_A(m), 'Url', 'http://x'),
+    'obj geom move': lambda m: m.Objects[0].Geometry.Transform(R.Transform.Translation(1, 0, 0)),
+    'layer name': lambda m: setattr(m.Layers[0], 'Name', 'q'),
+    'layer color': lambda m: setattr(m.Layers[0], 'Color', (9, 9, 9, 255)),
+    'layer visible': lambda m: setattr(m.Layers[0], 'Visible', not m.Layers[0].Visible),
+    'layer locked': lambda m: setattr(m.Layers[0], 'Locked', not m.Layers[0].Locked),
+    'layer plotweight': lambda m: setattr(m.Layers[0], 'PlotWeight', m.Layers[0].PlotWeight + 1),
+    'layer userstring': lambda m: m.Layers[0].SetUserString('a', 'b'),
+    'units': lambda m: setattr(m.Settings, 'ModelUnitSystem', R.UnitSystem.Feet if m.Settings.ModelUnitSystem != R.UnitSystem.Feet else R.UnitSystem.Meters),
+    'abs tol': lambda m: setattr(m.Settings, 'ModelAbsoluteTolerance', m.Settings.ModelAbsoluteTolerance * 2),
+    'base point': lambda m: setattr(m.Settings, 'ModelBasePoint', R.Point3d(5, 5, 5)),
+    'app name': lambda m: setattr(m, 'ApplicationName', 'x'),
+}
+
+@pytest.mark.parametrize('name', sorted(MUTATIONS))
+def test_snapshot_not_blind_to(name):
+    """every listed in-memory change must show up in diff(); a blind spot here is a way a bad save could pass the gate"""
+    hit = False
+    for f in ('V7-v7_my_brep.3dm', 'V7-v7_my_mesh_with_material.3dm'):
+        m = R.File3dm.Read(os.path.join(D, f)); a = write.snapshot(m)
+        MUTATIONS[name](m)
+        if write.diff(a, write.snapshot(m)): hit = True; break
+    assert hit
