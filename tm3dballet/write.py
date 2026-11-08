@@ -107,6 +107,7 @@ def gate(m):
 def edit_file(path, edit, expect, backup=True):
     """edit(model) mutates the model; expect(diffs) -> True when the diffs are exactly the intended ones.
     Original is replaced only if every check passes. Returns list of diffs applied."""
+    path = os.path.realpath(path)   # never replace a symlink itself; edit its target in place of the link
     try: probe.probe(path)
     except probe.Unreadable as e: raise Refused(str(e))
     st0 = os.stat(path); sig0 = (st0.st_size, st0.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest())

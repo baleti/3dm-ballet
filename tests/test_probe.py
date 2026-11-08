@@ -89,3 +89,21 @@ def test_stalled_native_write_refused_original_intact(tmp_path, monkeypatch):
     with pytest.raises(write.Refused, match='timed out'): write.edit_file(str(f), lambda m: None, lambda d: True)
     monkeypatch.undo(); time.sleep(5)
     assert f.read_bytes() == before and [p.name for p in tmp_path.iterdir()] == ['a.3dm']
+
+
+@pytest.mark.parametrize('name', ['plan é ü 日本語.3dm', 'with space and (parens) [1].3dm', "quote'and,comma;.3dm", 'a' * 120 + '.3dm'])
+def test_unicode_and_odd_filenames(tmp_path, name):
+    f = _good(tmp_path); g = tmp_path / name; f.rename(g); before = g.read_bytes()
+    reader.info(str(g))
+    ds = write.edit_file(str(g), lambda m: None, lambda d: d == [])
+    assert ds == [] and os.path.exists(str(g) + '.bak') and open(str(g) + '.bak', 'rb').read() == before
+    probe.probe(str(g))
+
+
+def test_symlink_target_is_edited_link_preserved(tmp_path):
+    if os.name == 'nt': pytest.skip('posix symlinks')
+    real = _good(tmp_path); (tmp_path / 'sub').mkdir()
+    link = tmp_path / 'sub' / 'link.3dm'; os.symlink(str(real), str(link))
+    write.edit_file(str(link), lambda m: None, lambda d: d == [])
+    assert os.path.islink(str(link)) and os.path.realpath(str(link)) == str(real)
+    assert [p.name for p in (tmp_path / 'sub').iterdir() if p.name != 'link.3dm'] == []
