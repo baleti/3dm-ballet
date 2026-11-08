@@ -107,3 +107,10 @@ def test_symlink_target_is_edited_link_preserved(tmp_path):
     write.edit_file(str(link), lambda m: None, lambda d: d == [])
     assert os.path.islink(str(link)) and os.path.realpath(str(link)) == str(real)
     assert [p.name for p in (tmp_path / 'sub').iterdir() if p.name != 'link.3dm'] == []
+
+
+def test_hardlinked_file_refused(tmp_path):
+    if os.name == 'nt': pytest.skip('posix hardlinks')
+    f = _good(tmp_path); os.link(str(f), str(tmp_path / 'other.3dm')); before = f.read_bytes()
+    with pytest.raises(write.Refused, match='hard link'): write.edit_file(str(f), lambda m: None, lambda d: True)
+    assert f.read_bytes() == before and (tmp_path / 'other.3dm').read_bytes() == before

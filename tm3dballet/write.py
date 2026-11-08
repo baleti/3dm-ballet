@@ -110,6 +110,7 @@ def edit_file(path, edit, expect, backup=True):
     path = os.path.realpath(path)   # never replace a symlink itself; edit its target in place of the link
     try: probe.probe(path)
     except probe.Unreadable as e: raise Refused(str(e))
+    if os.stat(path).st_nlink > 1: raise Refused('file has multiple hard links; replacing it would silently detach the other names')
     st0 = os.stat(path); sig0 = (st0.st_size, st0.st_mtime_ns, hashlib.sha256(open(path, 'rb').read()).hexdigest())
     m = R.File3dm.Read(path)
     if m is None: raise Refused('unreadable')
