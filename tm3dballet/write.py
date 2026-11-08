@@ -184,6 +184,42 @@ def notes_of(path):
         return (html, text, struct.unpack_from('<i', rest, 0)[0], struct.unpack_from('<4i', rest, 4))
     except Exception: return 'unparsed'
 
+# plug-in ids whose user record the library regenerates in its own, longer layout (minor-version upgrade, same leading bytes)
+UPGRADED_USER_IDS = {'d583bd812071c4419a57c449336ff12c', 'a551aa671d79ec4b8aedd23b462b6f87'}
+
+def user_records(path):
+    """list of (plugin id hex, payload) of the user-table records (0x10000020 / 0x20008075); id sits at payload offset 24"""
+    import struct
+    b = open(path, 'rb').read(); res = []; o = 32
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): break
+        if t == 0x10000020:
+            r = o + 12
+            while r + 12 <= o + 12 + l:
+                t2, l2 = struct.unpack_from('<Iq', b, r)
+                if t2 & 0x80000000: r += 12; continue
+                if l2 < 0 or r + 12 + l2 > o + 12 + l: break
+                p = b[r + 12:r + 12 + l2]; res.append((p[24:40].hex(), p)); r += 12 + l2
+        if t == 0x7fff: break
+        o += 12 + l
+    return res
+
+def _strs(p):
+    import re
+    return set(re.findall(rb'(?:[\x20-\x7e]\x00){3,}', p))
+
+def user_record_loss(a, b):
+    """plug-in user records of the source that are missing or altered in the output (known upgraded ids: output not shorter and keeps every UTF-16 string)"""
+    out = []; ob = {}
+    for k, p in b: ob.setdefault(k, []).append(p)
+    for k, p in a:
+        cand = ob.get(k, [])
+        if p in cand: cand.remove(p); continue
+        if k in UPGRADED_USER_IDS and any(len(c) >= len(p) and _strs(p) <= _strs(c) for c in cand): continue
+        out.append(k)
+    return out
+
 def census(path):
     """count of (top-level table chunk, record typecode) in a 3dm file (archive >= V5 chunk framing, 8-byte lengths).
     Used as a second, byte-structure level check: a rewrite that drops table records must not be accepted."""
@@ -320,6 +356,9 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
                 p0, p1 = stable_payloads(path), stable_payloads(tmp)
                 bad = sorted('%s/%s' % k for k in p0 if p1.get(k) != p0[k])
                 if bad: raise Refused('settings records changed by the save although no settings edit was requested: %s' % bad[:4])
+        if ver >= 50:
+            ul = user_record_loss(user_records(path), user_records(tmp))
+            if ul: raise Refused('plug-in user record(s) lost or altered by the save: %s' % ul[:3])
         if ver >= 50 and notes_of(path) != notes_of(tmp): raise Refused('document notes changed by the save')
         c0 = _g(lambda: m.StartSectionComments, ''); c1 = _g(lambda: m2.StartSectionComments, '')
         if not c1.startswith(c0): raise Refused('file creation comments changed (the library may only append a line)')

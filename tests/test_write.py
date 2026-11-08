@@ -435,3 +435,20 @@ def test_notes_change_is_refused(tmp_path, monkeypatch):
     lay = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused, match='notes'): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_user_records_survive_noedit_rewrite(f, tmp_path):
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    out = str(tmp_path / 'o.3dm'); m.Write(out, m.ArchiveVersion)
+    assert write.user_record_loss(write.user_records(f), write.user_records(out)) == [] or os.path.basename(f) in KNOWN_LOSSY
+
+
+def test_foreign_plugin_user_record_change_is_refused(tmp_path, monkeypatch):
+    src = next(q for q in FILES if os.path.basename(q) == 'V5-v5_my_curves.3dm'); f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); before = open(f, 'rb').read()
+    real = write.user_records
+    monkeypatch.setattr(write, 'user_records', lambda p: [('11' * 16, b'x' * 50)] if p == f else real(p))
+    lay = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused, match='user record'): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before
