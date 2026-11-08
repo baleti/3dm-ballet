@@ -162,7 +162,7 @@ def edit_file(path, edit, expect, backup=True):
             raise Refused('source changed during edit; refusing to overwrite')
         try:
             shutil.copymode(path, tmp)   # mkstemp creates 0600; keep the original permissions
-            with open(tmp, 'rb') as fh: os.fsync(fh.fileno())
+            with open(tmp, 'r+b') as fh: os.fsync(fh.fileno())
         except OSError as e: raise Refused('cannot finalise output, original untouched: %s' % e)
         if backup:
             try:
