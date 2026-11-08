@@ -1,6 +1,6 @@
 """Byte-flip fuzz: reader and write gate must never crash the process or accept a changed file silently.
 Each case runs in a subprocess (native crashes must be contained). Usage: python3 tests/fuzz_3dm.py [N]"""
-import os, random, subprocess, sys, tempfile, glob
+import os, struct, random, subprocess, sys, tempfile, glob
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHILD = r'''
 import sys
@@ -28,15 +28,32 @@ try:
 except Exception as e:
     print("exc:" + type(e).__name__)
 '''
+def chunks(b):
+    o, out = 32, []
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): break
+        out.append((o, l)); o += 12 + l
+    return out
+
+def mutate_chunk(b, rnd):
+    cs = chunks(b)
+    if not cs: return b
+    o, l = rnd.choice(cs)
+    if rnd.random() < .5: struct.pack_into('<q', b, o + 4, max(0, l + rnd.choice([-8, -1, 1, 8, 1 << 20, -(1 << 40)])))
+    else: struct.pack_into('<I', b, o, struct.unpack_from('<I', b, o)[0] ^ (1 << rnd.randrange(32)))
+    return b
+
 def run(n=40, seed=1):
     rnd = random.Random(seed); files = sorted(glob.glob(os.path.join(HERE, 'data', 'V[5-8]*.3dm')))
     res = {}
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([os.path.join(HERE, '..'), os.path.join(HERE, '..', '.deps')]))
     for i in range(n):
         src = rnd.choice(files); b = bytearray(open(src, 'rb').read())
-        mode = rnd.choice(['flip', 'trunc', 'zero'])
+        mode = rnd.choice(['flip', 'trunc', 'zero', 'chunk', 'chunk'])
         if mode == 'flip':
             for _ in range(rnd.randint(1, 8)): b[rnd.randrange(len(b))] ^= 1 << rnd.randrange(8)
+        elif mode == 'chunk': b = mutate_chunk(b, rnd)
         elif mode == 'trunc': b = b[:rnd.randrange(32, len(b))]
         else:
             p = rnd.randrange(len(b)); b[p:p + 64] = bytes(len(b[p:p + 64]))
