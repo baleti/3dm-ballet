@@ -141,7 +141,7 @@ def edit_file(path, edit, expect, backup=True):
     before = snapshot(m); ver = m.ArchiveVersion
     edit(m)
     d = os.path.dirname(os.path.abspath(path))
-    try: fd, tmp = tempfile.mkstemp(suffix='.3dm', dir=d); os.close(fd)
+    try: fd, tmp = tempfile.mkstemp(prefix='.3dmballet-', suffix='.tmp', dir=d); os.close(fd)
     except OSError as e: raise Refused('cannot create temp file next to source: %s' % e)
     try:
         if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')

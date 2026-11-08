@@ -82,3 +82,29 @@ def test_second_edit_keeps_first_backup_and_mode(tmp_path):
     assert os.path.exists(f + '.bak.1') and open(f + '.bak.1', 'rb').read() != orig
     if os.name == 'posix': assert os.stat(f).st_mode & 0o777 == 0o644
     assert R.File3dm.Read(f).Layers[0].Name == lay + '_2'
+
+
+@pytest.mark.parametrize('where', ['mid_write', 'before_replace'])
+def test_process_killed_mid_save_leaves_original_identical(where, tmp_path):
+    """hard kill (no finally blocks) during the save: original byte-identical and still loadable"""
+    import subprocess, sys, textwrap
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    root = os.path.dirname(os.path.dirname(__file__)); lay = R.File3dm.Read(f).Layers[0].Name
+    code = textwrap.dedent('''
+        import sys, os
+        sys.path[:0] = [%r, %r]
+        from tm3dballet import write
+        where = %r
+        if where == 'mid_write':
+            def gw(m, tmp, ver, timeout=120):
+                open(tmp, 'wb').write(b'3D Geometry File Format ' + b'\\0' * 7); os._exit(9)
+            write._guarded_write = gw
+        else:
+            def rep(a, b): os._exit(9)
+            write.os.replace = rep
+        write.rename_layer(%r, %r, 'zzz')
+    ''') % (root, os.path.join(root, '.deps'), where, f, lay)
+    r = subprocess.run([sys.executable, '-I', '-c', code], timeout=120)
+    assert r.returncode == 9
+    assert open(f, 'rb').read() == before
+    assert R.File3dm.Read(f).Layers[0].Name == lay
