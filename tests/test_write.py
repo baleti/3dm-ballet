@@ -211,3 +211,17 @@ def test_unknown_record_in_known_table_is_refused_not_silently_dropped(tmp_path)
     lay = m.Layers[0].Name
     with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
+
+
+def test_trailing_bytes_after_eof_chunk_refused(tmp_path):
+    f = str(tmp_path / 'a.3dm'); b = open(os.path.join(D, 'V7-v7_my_brep.3dm'), 'rb').read()
+    open(f, 'wb').write(b + b'JUNKJUNK' * 4); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
+
+
+def test_unknown_record_in_object_table_refused(tmp_path):
+    f = str(tmp_path / 'a.3dm'); assert _inject_unknown_record(os.path.join(D, 'V7-v7_my_brep.3dm'), f, table=0x10000013)
+    before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before

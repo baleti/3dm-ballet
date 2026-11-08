@@ -137,11 +137,14 @@ def census(path):
     def walk(o, end, tag):
         while o + 12 <= end:
             t, l = struct.unpack_from('<Iq', b, o)
-            if l < 0 or o + 12 + l > end: return
+            if l < 0 or o + 12 + l > end: return o
             c[(tag, '%08x' % t)] += 1
             if tag == '': walk(o + 12, o + 12 + l, '%08x' % t)
             o += 12 + l
-    walk(32, len(b), '')
+            if tag == '' and t == 0x7fff: return o   # end-of-file chunk
+        return o
+    stop = walk(32, len(b), '')
+    if stop < len(b): c[('', 'trailing-bytes')] = len(b) - stop   # data after the last chunk; the library does not carry it over
     return c
 
 # record typecodes the library legitimately swaps on rewrite (V6 archive settings/properties record variant)
