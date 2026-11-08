@@ -415,3 +415,23 @@ def test_saved_file_keeps_original_preview_image_and_valid_length(name, tmp_path
     assert _preview(f) == pv
     b = open(f, 'rb').read(); assert struct.unpack_from('<q', b, len(b) - 8)[0] == len(b)
     assert R.File3dm.Read(f).Layers[0].Name == lay + '_x'
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_notes_survive_noedit_rewrite_or_are_refused(f, tmp_path):
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    n0 = write.notes_of(f)
+    if n0 is None: pytest.skip('no notes record')
+    assert n0 != 'unparsed'
+    out = str(tmp_path / 'o.3dm'); m.Write(out, m.ArchiveVersion)
+    assert write.notes_of(out) == n0 or os.path.basename(f) in KNOWN_LOSSY
+
+
+def test_notes_change_is_refused(tmp_path, monkeypatch):
+    src = next(q for q in FILES if os.path.basename(q) == 'V5-v5_my_curves.3dm'); f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); before = open(f, 'rb').read()
+    real = write.notes_of
+    monkeypatch.setattr(write, 'notes_of', lambda p: real(p) if p == f else (1, 'other', 0, (0, 0, 0, 0)))
+    lay = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused, match='notes'): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before

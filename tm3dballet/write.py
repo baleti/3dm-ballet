@@ -171,6 +171,19 @@ def restore_preview(src, tmp):
     with open(tmp, 'wb') as fh: fh.write(b)
     return True
 
+def notes_of(path):
+    """(is_html, text, visible, window ints) of the document notes record (0x20008022; rhino3dm exposes no Notes API so it was uncompared).
+    The library bumps the record minor version, so the raw bytes differ; the content must not."""
+    import struct
+    b = open(path, 'rb').read(); r = _find_record(b, 0x10000014, 0x20008022)
+    if r is None: return None
+    p = b[r[1] + 12:r[1] + 12 + r[2]]
+    try:
+        html = p[4]; n = struct.unpack_from('<i', p, 5)[0]
+        text = p[9:9 + 2 * n].decode('utf-16-le'); rest = p[9 + 2 * n:]
+        return (html, text, struct.unpack_from('<i', rest, 0)[0], struct.unpack_from('<4i', rest, 4))
+    except Exception: return 'unparsed'
+
 def census(path):
     """count of (top-level table chunk, record typecode) in a 3dm file (archive >= V5 chunk framing, 8-byte lengths).
     Used as a second, byte-structure level check: a rewrite that drops table records must not be accepted."""
@@ -307,6 +320,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
                 p0, p1 = stable_payloads(path), stable_payloads(tmp)
                 bad = sorted('%s/%s' % k for k in p0 if p1.get(k) != p0[k])
                 if bad: raise Refused('settings records changed by the save although no settings edit was requested: %s' % bad[:4])
+        if ver >= 50 and notes_of(path) != notes_of(tmp): raise Refused('document notes changed by the save')
         c0 = _g(lambda: m.StartSectionComments, ''); c1 = _g(lambda: m2.StartSectionComments, '')
         if not c1.startswith(c0): raise Refused('file creation comments changed (the library may only append a line)')
         ds = diff(before, after)
