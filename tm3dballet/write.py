@@ -129,6 +129,28 @@ def diff(a, b):
             if x[k] != y[k]: out.append('object %s %s differs' % (i, k))
     return out
 
+def census(path):
+    """count of (top-level table chunk, record typecode) in a 3dm file (archive >= V5 chunk framing, 8-byte lengths).
+    Used as a second, byte-structure level check: a rewrite that drops table records must not be accepted."""
+    import struct, collections
+    b = open(path, 'rb').read(); c = collections.Counter()
+    def walk(o, end, tag):
+        while o + 12 <= end:
+            t, l = struct.unpack_from('<Iq', b, o)
+            if l < 0 or o + 12 + l > end: return
+            c[(tag, '%08x' % t)] += 1
+            if tag == '': walk(o + 12, o + 12 + l, '%08x' % t)
+            o += 12 + l
+    walk(32, len(b), '')
+    return c
+
+# record typecodes the library legitimately swaps on rewrite (V6 archive settings/properties record variant)
+CENSUS_SWAP = {'88200080', '99200080'}
+
+def census_loss(a, b):
+    """records present in the original census but fewer in the output"""
+    return sorted('%s/%s: %d -> %d' % (k[0], k[1], n, b[k]) for k, n in a.items() if b[k] < n and k[1] not in CENSUS_SWAP)
+
 def gate(m):
     """reasons the library cannot be trusted to round-trip this model; empty = ok"""
     why = []
@@ -165,6 +187,9 @@ def edit_file(path, edit, expect, backup=True):
         if m2 is None: raise Refused('output unreadable')
         after = snapshot(m2)
         if after['version'] != before['version']: raise Refused('archive version changed')
+        if ver >= 50:
+            lost = census_loss(census(path), census(tmp))
+            if lost: raise Refused('output has fewer table records than the source: %s' % lost[:4])
         ds = diff(before, after)
         if not expect(ds): raise Refused('unexpected differences: %s' % ds[:5])
         st1 = os.stat(path)

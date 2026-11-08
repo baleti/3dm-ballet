@@ -162,3 +162,24 @@ def test_source_modified_during_edit_is_not_overwritten(tmp_path):
     with pytest.raises(write.Refused): write.edit_file(f, edit, lambda ds: ds == ['layers differs'])
     assert open(f, 'rb').read().endswith(b'\0') and not os.path.exists(f + '.bak')
     assert [p for p in os.listdir(tmp_path) if p.startswith('.3dmballet')] == []
+
+
+def test_census_loss_semantics():
+    import collections
+    a = collections.Counter({('10000019', '20008074'): 2, ('10000017', 'x'): 1})
+    assert write.census_loss(a, collections.Counter({('10000019', '20008074'): 1, ('10000017', 'x'): 5})) == ['10000019/20008074: 2 -> 1']
+    assert write.census_loss(a, collections.Counter({('10000019', '20008074'): 2, ('10000017', 'x'): 1, ('new', 'y'): 3})) == []
+
+
+@pytest.mark.parametrize('f', [p for p in FILES if os.path.basename(p) not in KNOWN_LOSSY], ids=os.path.basename)
+def test_census_no_loss_on_noedit_rewrite(f, tmp_path):
+    m = R.File3dm.Read(f)
+    if write.gate(m) or m.ArchiveVersion < 50: pytest.skip('gate/old format')
+    o = str(tmp_path / 'o.3dm'); assert m.Write(o, m.ArchiveVersion)
+    assert write.census_loss(write.census(f), write.census(o)) == []
+
+
+def test_census_catches_known_lossy_example(tmp_path):
+    f = os.path.join(D, 'V5-v5_example_file.3dm'); m = R.File3dm.Read(f)
+    o = str(tmp_path / 'o.3dm'); m.Write(o, m.ArchiveVersion)
+    assert write.census_loss(write.census(f), write.census(o)) != []
