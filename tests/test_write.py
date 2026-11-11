@@ -18,12 +18,19 @@ def test_refuses_missing_layer_and_leaves_original(tmp_path):
     assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
 
 def test_gate_catches_unintended_change(tmp_path):
+    """an edit that also touches geometry must be refused when only a layer change is expected (layer-only edits are accepted)"""
     f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
     before = open(f, 'rb').read()
-    def evil(m): m.Layers[0].Name = 'x'; m.Objects[0].Attributes.Name = 'sneaky'  # attribute edit not allowed by expect
-    # attribute edits on a copy of Objects are not written back by rhino3dm, so also force a layer + count mismatch
-    with pytest.raises(write.Refused): write.edit_file(f, lambda m: (evil(m), m.Layers.Add(R.Layer())), lambda ds: ds == ['layers differs'])
-    assert open(f, 'rb').read() == before
+    def evil(m): m.Layers[0].Name = 'x'; m.Objects.AddPoint(R.Point3d(1, 2, 3))
+    with pytest.raises(write.Refused): write.edit_file(f, evil, lambda ds: ds == ['layers differs'])
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
+
+def test_gate_catches_deleted_geometry(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    before = open(f, 'rb').read()
+    def evil(m): m.Layers[0].Name = 'x'; m.Objects.Delete(m.Objects[0].Attributes.Id)
+    with pytest.raises(write.Refused): write.edit_file(f, evil, lambda ds: ds == ['layers differs'])
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
 
 # files whose no-edit rewrite by rhino3dm is NOT equivalent: the gate must refuse them (regression set, severity 1 if ever accepted)
 KNOWN_LOSSY = {'V5-v5_example_file.3dm': 'annotation geometry differs after rewrite',
@@ -523,3 +530,15 @@ def test_user_table_source_records_kept_after_layer_rename(f, tmp_path):
     except write.Refused: pytest.skip('refused (also safe)')
     u1 = _tbl(g, 0x10000020) or []
     assert all(p in u1 for p in u0), 'source user record changed'
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_render_content_table_identical_after_layer_rename(f, tmp_path):
+    """table 0x10000017 is neither added nor re-serialised by the save"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); u0 = _tbl(g, 0x10000017); lay = m.Layers[0].Name
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    assert _tbl(g, 0x10000017) == u0
+    assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'
