@@ -507,3 +507,19 @@ def test_object_records_byte_identical_after_layer_rename(f, tmp_path):
     except write.Refused: pytest.skip('refused (also safe)')
     assert _objs(g) == o0, 'object records differ from source'
     assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'
+
+
+def _tbl(path, t):
+    r = write._table_records(open(path, 'rb').read(), t)
+    return None if r is None else [p for _, _, _, p in r[2]]
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_user_table_source_records_kept_after_layer_rename(f, tmp_path):
+    """every plug-in user record present in the source is still present, byte for byte, after a save"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); u0 = _tbl(g, 0x10000020) or []; lay = m.Layers[0].Name
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    u1 = _tbl(g, 0x10000020) or []
+    assert all(p in u1 for p in u0), 'source user record changed'

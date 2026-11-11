@@ -404,6 +404,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
+        if ver >= 50 and not restore_records(path, tmp, 0x10000020): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
         if ver >= 50 and not allow_objects and not restore_objects(path, tmp): raise Refused('object table layout changed by the save')
         try: probe.probe(tmp)
