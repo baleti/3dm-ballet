@@ -491,3 +491,19 @@ def test_settings_table_bytes_identical_after_layer_rename(f, tmp_path):
     s1 = _settings(g)
     assert s1 == s0 or [t for (t, p), (t2, p2) in zip(s0, s1) if p != p2] == [], 'settings records differ'
     assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'
+
+
+def _objs(path):
+    r = write._table_records(open(path, 'rb').read(), 0x10000013)
+    return None if r is None else [p for _, _, t, p in r[2]]
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_object_records_byte_identical_after_layer_rename(f, tmp_path):
+    """object records the user did not edit keep the source bytes (the library re-encodes ~70 percent of them)"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); o0 = _objs(g); lay = m.Layers[0].Name
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    assert _objs(g) == o0, 'object records differ from source'
+    assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'

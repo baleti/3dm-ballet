@@ -190,6 +190,22 @@ def _table_records(b, table):
         o += 12 + l
     return None
 
+def restore_objects(src, tmp):
+    """object table: the library re-encodes 151 of 215 object records of the public samples. When the caller edits no objects, put every
+    source object record back byte for byte (positional; count and typecodes must match), then fix table and end-of-file lengths."""
+    import struct
+    a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
+    ta, tb = _table_records(a, 0x10000013), _table_records(b, 0x10000013)
+    if ta is None or tb is None: return ta is None and tb is None
+    if len(ta[2]) != len(tb[2]) or any(x[2] != y[2] for x, y in zip(ta[2], tb[2])): return False
+    if all(x[3] == y[3] for x, y in zip(ta[2], tb[2])): return True
+    body = b''.join(a[r:r + n] for r, n, _, _ in ta[2]); o, l, _ = tb
+    out = bytearray(b[:o + 4]) + struct.pack('<q', len(body)) + body + b[o + 12 + l:]
+    if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
+    struct.pack_into('<q', out, len(out) - 8, len(out))
+    with open(tmp, 'wb') as fh: fh.write(out)
+    return True
+
 def restore_records(src, tmp, table, uuid_at=24, single=False):
     """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
     For every output record whose plug-in/class id (payload offset `uuid_at`) matches a source record that differs, put the source bytes back
@@ -355,15 +371,15 @@ def _lock(path):
         except OSError as e: raise Refused('cannot create lock file: %s' % e)
     raise Refused('cannot take lock')
 
-def edit_file(path, edit, expect, backup=True, allow_settings=False):
+def edit_file(path, edit, expect, backup=True, allow_settings=False, allow_objects=False):
     path = os.path.realpath(path)
     lk = _lock(path)
-    try: return _edit_file(path, edit, expect, backup, allow_settings)
+    try: return _edit_file(path, edit, expect, backup, allow_settings, allow_objects)
     finally:
         try: os.remove(lk)
         except OSError: pass
 
-def _edit_file(path, edit, expect, backup=True, allow_settings=False):
+def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_objects=False):
     """edit(model) mutates the model; expect(diffs) -> True when the diffs are exactly the intended ones.
     Original is replaced only if every check passes. Returns list of diffs applied."""
     path = os.path.realpath(path)   # never replace a symlink itself; edit its target in place of the link
@@ -389,6 +405,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False):
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
+        if ver >= 50 and not allow_objects and not restore_objects(path, tmp): raise Refused('object table layout changed by the save')
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
