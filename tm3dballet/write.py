@@ -235,14 +235,43 @@ def restore_records(src, tmp, table, uuid_at=24, single=False, only=None):
     with open(tmp, 'wb') as fh: fh.write(out)
     return True
 
+def _top_chunks(b, table):
+    """(offset, total length) of every top-level chunk of typecode `table`; None when the chunk walk fails"""
+    import struct
+    o = 32; hit = []
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): return None
+        if t == table: hit.append((o, 12 + l))
+        if t == 0x7fff: break
+        o += 12 + l
+    return hit
+
 def drop_added_table(src, tmp, table):
-    """the library appends an empty render-content table (0x10000017) to files that had none; remove it again so the output has no table the source lacked"""
+    """the library appends render-content tables (0x10000017) the source did not have (an empty one, or a second one next to a source table);
+    remove every output chunk of that typecode beyond the number the source had"""
     import struct
     a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
-    ta, tb = _table_records(a, table), _table_records(b, table)
-    if ta is not None or tb is None: return True
-    o, l, _ = tb
-    out = bytearray(b[:o]) + b[o + 12 + l:]
+    ca, cb = _top_chunks(a, table), _top_chunks(b, table)
+    if ca is None or cb is None: return False
+    if len(cb) <= len(ca): return True
+    out = bytearray(b)
+    for o, n in reversed(cb[len(ca):]): del out[o:o + n]
+    if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
+    struct.pack_into('<q', out, len(out) - 8, len(out))
+    with open(tmp, 'wb') as fh: fh.write(out)
+    return True
+
+def restore_start(src, tmp):
+    """the start-section chunk (0x1) holds the creating application text; the library rewrites it longer. Put the source chunk back."""
+    import struct
+    a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
+    ca, cb = _top_chunks(a, 1), _top_chunks(b, 1)
+    if ca is None or cb is None or len(ca) != len(cb) or len(ca) > 1: return False
+    if not ca: return True
+    (oa, na), (ob, nb) = ca[0], cb[0]
+    if a[oa:oa + na] == b[ob:ob + nb]: return True
+    out = bytearray(b[:ob]) + a[oa:oa + na] + b[ob + nb:]
     if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
     struct.pack_into('<q', out, len(out) - 8, len(out))
     with open(tmp, 'wb') as fh: fh.write(out)
@@ -421,6 +450,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
     try:
         if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
+        if ver >= 50 and not restore_start(path, tmp): raise Refused('start section layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
         if ver >= 50 and not drop_added_table(path, tmp, 0x10000017): raise Refused('render-content table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000017, single=True): raise Refused('render-content table layout not understood')

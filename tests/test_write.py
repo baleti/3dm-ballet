@@ -584,3 +584,23 @@ def test_notes_record_bytes_identical_after_layer_rename(f, tmp_path):
     try: write.rename_layer(g, lay, lay + '_x')
     except write.Refused: pytest.skip('refused (also safe)')
     assert notes(g) == n0
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_header_start_chunk_and_table_order_after_layer_rename(f, tmp_path):
+    """32-byte header and start chunk keep the source bytes; the top-level chunk typecode sequence is unchanged (no extra render-content tables)"""
+    import struct
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); lay = m.Layers[0].Name
+    def seq(p):
+        b = open(p, 'rb').read(); o = 32; out = []
+        while o + 12 <= len(b):
+            t, l = struct.unpack_from('<Iq', b, o); out.append((t, b[o + 12:o + 12 + l] if t == 1 else None)); o += 12 + l
+            if t == 0x7fff: break
+        return b[:32], out
+    h0, s0 = seq(g)
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    h1, s1 = seq(g)
+    assert h0 == h1 and s0[0] == s1[0] and [t for t, _ in s0] == [t for t, _ in s1]
