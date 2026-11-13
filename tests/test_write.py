@@ -604,3 +604,30 @@ def test_header_start_chunk_and_table_order_after_layer_rename(f, tmp_path):
     except write.Refused: pytest.skip('refused (also safe)')
     h1, s1 = seq(g)
     assert h0 == h1 and s0[0] == s1[0] and [t for t, _ in s0] == [t for t, _ in s1]
+
+
+@pytest.mark.parametrize('bad', ['', '  ', 'a\x00b', 'a\nb', 'a::b', 'x' * 1001, ' pad'])
+def test_rename_layer_refuses_invalid_names(bad, tmp_path):
+    """names Rhino would truncate, repair or reject are refused before any write; the file is untouched"""
+    f = [x for x in FILES if 'V7-v7_my_cur' in x]
+    if not f: pytest.skip('sample missing')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f[0], g); b0 = open(g, 'rb').read(); lay = R.File3dm.Read(g).Layers[0].Name
+    with pytest.raises(write.Refused): write.rename_layer(g, lay, bad)
+    assert open(g, 'rb').read() == b0
+
+
+def test_rename_layer_refuses_sibling_duplicate(tmp_path):
+    f = [x for x in FILES if 'V7-v7_my_cur' in x]
+    if not f: pytest.skip('sample missing')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f[0], g); b0 = open(g, 'rb').read(); m = R.File3dm.Read(g)
+    if len(m.Layers) < 2 or str(m.Layers[0].ParentLayerId) != str(m.Layers[1].ParentLayerId): pytest.skip('layers not siblings')
+    with pytest.raises(write.Refused): write.rename_layer(g, m.Layers[0].Name, m.Layers[1].Name)
+    assert open(g, 'rb').read() == b0
+
+
+def test_rename_layer_unicode_name_roundtrips(tmp_path):
+    f = [x for x in FILES if 'V7-v7_my_cur' in x]
+    if not f: pytest.skip('sample missing')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f[0], g); lay = R.File3dm.Read(g).Layers[0].Name
+    write.rename_layer(g, lay, 'Ünï☃ 层 😀')
+    assert R.File3dm.Read(g).Layers[0].Name == 'Ünï☃ 层 😀'
