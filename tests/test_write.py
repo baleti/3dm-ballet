@@ -784,3 +784,25 @@ def test_garbage_and_empty_sources_refused(tmp_path):
         f = str(tmp_path / name); open(f, 'wb').write(data)
         with pytest.raises(write.Refused): write.rename_layer(f, 'x', 'y')
         assert open(f, 'rb').read() == data
+
+
+def test_readonly_source_file_refused_or_original_intact(tmp_path):
+    """chmod 444 source in a writable directory: replacing it would silently override the user's read-only flag"""
+    if os.name != 'posix' or os.geteuid() == 0: pytest.skip('needs posix non-root')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); os.chmod(f, 0o444)
+    before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    try:
+        with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+        assert open(f, 'rb').read() == before and os.stat(f).st_mode & 0o777 == 0o444
+    finally: os.chmod(f, 0o644)
+
+
+def test_symlinked_source_edits_target_and_keeps_link(tmp_path):
+    """saving through a symlink must not replace the link by a regular file (the real file would be left stale, the link silently detached)"""
+    if os.name != 'posix': pytest.skip('symlinks')
+    real = tmp_path / 'real'; real.mkdir(); t = str(real / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), t)
+    link = str(tmp_path / 'link.3dm'); os.symlink(t, link); lay = R.File3dm.Read(t).Layers[0].Name
+    try: write.rename_layer(link, lay, lay + '_x')
+    except write.Refused: return   # refusing is also safe
+    assert os.path.islink(link), 'link was replaced by a regular file'
+    assert R.File3dm.Read(t).Layers[0].Name == lay + '_x'
