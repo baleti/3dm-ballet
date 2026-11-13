@@ -631,3 +631,33 @@ def test_rename_layer_unicode_name_roundtrips(tmp_path):
     g = str(tmp_path / 'a.3dm'); shutil.copy(f[0], g); lay = R.File3dm.Read(g).Layers[0].Name
     write.rename_layer(g, lay, 'Ünï☃ 层 😀')
     assert R.File3dm.Read(g).Layers[0].Name == 'Ünï☃ 层 😀'
+
+
+def _nested_file(path):
+    import uuid
+    m = R.File3dm()
+    def lay(name, parent=None):
+        l = R.Layer(); l.Name = name; l.Id = uuid.uuid4()
+        if parent is not None: l.ParentLayerId = parent.Id
+        m.Layers.Add(l); return m.Layers[len(m.Layers) - 1]
+    a = lay('Arch'); b = lay('Walls', a); lay('Doors', b); c = lay('Other'); lay('Doors', c)
+    m.Objects.AddPoint(R.Point3d(1, 2, 3), R.ObjectAttributes())
+    m.Write(path, 8)
+
+@pytest.mark.parametrize('old,new', [('Arch', 'Arch2'), ('Walls', 'Walls2'), ('Other', 'Other2')])
+def test_rename_nested_layer_keeps_ids_and_parents(old, new, tmp_path):
+    """synthetic nested layers: ids and parent links are unchanged, full paths follow the rename, untouched layer records keep their bytes"""
+    g = str(tmp_path / 'n.3dm'); _nested_file(g)
+    r0 = R.File3dm.Read(g); sig0 = [(str(l.Id), str(l.ParentLayerId)) for l in r0.Layers]
+    write.rename_layer(g, old, new)
+    r1 = R.File3dm.Read(g)
+    assert [(str(l.Id), str(l.ParentLayerId)) for l in r1.Layers] == sig0
+    assert [l.Name for l in r1.Layers if l.Name == new] == [new]
+    assert not any(l.FullPath.split('::')[i:i + 1] == [old] for l in r1.Layers for i in range(len(l.FullPath.split('::'))))
+
+
+def test_rename_ambiguous_nested_name_refused(tmp_path):
+    """'Doors' exists under two parents: renaming by bare name is ambiguous and must be refused, file untouched"""
+    g = str(tmp_path / 'n.3dm'); _nested_file(g); b0 = open(g, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(g, 'Doors', 'Doors2')
+    assert open(g, 'rb').read() == b0
