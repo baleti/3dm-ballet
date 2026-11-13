@@ -190,7 +190,7 @@ def _table_records(b, table):
         o += 12 + l
     return None
 
-def restore_objects(src, tmp, table=0x10000013):
+def restore_objects(src, tmp, table=0x10000013, skip=()):
     """object table: the library re-encodes 151 of 215 object records of the public samples. When the caller edits no objects, put every
     source object record back byte for byte (positional; count and typecodes must match), then fix table and end-of-file lengths."""
     import struct
@@ -199,7 +199,7 @@ def restore_objects(src, tmp, table=0x10000013):
     if ta is None or tb is None: return ta is None and tb is None
     if len(ta[2]) != len(tb[2]) or any(x[2] != y[2] for x, y in zip(ta[2], tb[2])): return False
     if all(x[3] == y[3] for x, y in zip(ta[2], tb[2])): return True
-    body = b''.join(a[r:r + n] for r, n, _, _ in ta[2]); o, l, _ = tb
+    body = b''.join(b[y[0]:y[0] + y[1]] if i in skip else a[x[0]:x[0] + x[1]] for i, (x, y) in enumerate(zip(ta[2], tb[2]))); o, l, _ = tb
     out = bytearray(b[:o + 4]) + struct.pack('<q', len(body)) + body + b[o + 12 + l:]
     if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
     struct.pack_into('<q', out, len(out) - 8, len(out))
@@ -411,7 +411,9 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
     why = gate(m)
     if why: raise Refused('; '.join(why))
     before = snapshot(m); ver = m.ArchiveVersion
+    lsig = [json.dumps(l.Encode(), sort_keys=True, default=str) for l in m.Layers]
     edit(m)
+    changed_layers = {i for i, l in enumerate(m.Layers) if i >= len(lsig) or json.dumps(l.Encode(), sort_keys=True, default=str) != lsig[i]}
     d = os.path.dirname(os.path.abspath(path))
     try: fd, tmp = tempfile.mkstemp(prefix='.3dmballet-', suffix='.tmp', dir=d); os.close(fd)
     except OSError as e: raise Refused('cannot create temp file next to source: %s' % e)
@@ -424,6 +426,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not restore_records(path, tmp, 0x10000020): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
         if ver >= 50 and not allow_objects and not restore_objects(path, tmp): raise Refused('object table layout changed by the save')
+        if ver >= 50 and not restore_objects(path, tmp, 0x10000011, skip=changed_layers): raise Refused('layer table layout changed by the save')
         if ver >= 50 and not allow_objects:
             for tb_ in POSITIONAL_TABLES:   # material, light, and other tables no edit API touches: source records back byte for byte
                 if not restore_objects(path, tmp, tb_): raise Refused('table 0x%x layout changed by the save' % tb_)

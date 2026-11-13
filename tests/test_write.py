@@ -555,3 +555,16 @@ def test_material_light_and_misc_tables_identical_after_layer_rename(f, tmp_path
     except write.Refused: pytest.skip('refused (also safe)')
     assert {t: _tbl(g, t) for t in write.POSITIONAL_TABLES} == before
     assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_untouched_layer_records_identical_after_layer_rename(f, tmp_path):
+    """only the renamed layer's record may differ; every other layer record keeps the source bytes"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); a = _tbl(g, 0x10000011); lay = m.Layers[0].Name
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    b = _tbl(g, 0x10000011)
+    assert len(a) == len(b) and sum(x != y for x, y in zip(a, b)) <= 1
+    assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'
