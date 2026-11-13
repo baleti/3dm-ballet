@@ -208,7 +208,7 @@ def restore_objects(src, tmp, table=0x10000013, skip=()):
 
 POSITIONAL_TABLES = (0x10000010, 0x10000012, 0x10000023, 0x10000025, 0x10000026)
 
-def restore_records(src, tmp, table, uuid_at=24, single=False):
+def restore_records(src, tmp, table, uuid_at=24, single=False, only=None):
     """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
     For every output record whose plug-in/class id (payload offset `uuid_at`) matches a source record that differs, put the source bytes back
     (each record has its own CRC; table chunks have none), then fix the table and end-of-file lengths."""
@@ -218,7 +218,8 @@ def restore_records(src, tmp, table, uuid_at=24, single=False):
     if ta is None or tb is None: return ta is None and tb is None
     pool = {}
     key = (lambda t, p: t) if single else (lambda t, p: (t, p[uuid_at:uuid_at + 16]))   # single: one record per typecode (settings table)
-    for _, _, t, p in ta[2]: pool.setdefault(key(t, p), []).append(p)
+    for _, _, t, p in ta[2]:
+        if only is None or t in only: pool.setdefault(key(t, p), []).append(p)
     new = []; changed = False
     for r, n, t, p in tb[2]:
         cand = pool.get(key(t, p))
@@ -423,6 +424,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
         if ver >= 50 and not drop_added_table(path, tmp, 0x10000017): raise Refused('render-content table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000017, single=True): raise Refused('render-content table layout not understood')
+        if ver >= 50 and not restore_records(path, tmp, 0x10000014, single=True, only=(0x20008022,)): raise Refused('properties table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000020): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
         if ver >= 50 and not allow_objects and not restore_objects(path, tmp): raise Refused('object table layout changed by the save')

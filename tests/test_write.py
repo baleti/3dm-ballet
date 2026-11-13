@@ -568,3 +568,19 @@ def test_untouched_layer_records_identical_after_layer_rename(f, tmp_path):
     b = _tbl(g, 0x10000011)
     assert len(a) == len(b) and sum(x != y for x, y in zip(a, b)) <= 1
     assert R.File3dm.Read(g).Layers[0].Name == lay + '_x'
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_notes_record_bytes_identical_after_layer_rename(f, tmp_path):
+    """document notes record (0x20008022) keeps the source bytes; the library re-encodes it with a bumped minor version"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm')
+    shutil.copy(f, g)
+    def notes(p):
+        r = write._table_records(open(p, 'rb').read(), 0x10000014)
+        return [x[3] for x in r[2] if x[2] == 0x20008022]
+    n0 = notes(g); lay = m.Layers[0].Name
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    assert notes(g) == n0
