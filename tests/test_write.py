@@ -52,8 +52,25 @@ def test_noedit_roundtrip_equivalent(f, tmp_path):
 def test_lossy_files_are_refused_and_untouched(name, tmp_path):
     f = str(tmp_path / name); shutil.copy(next(q for q in FILES if os.path.basename(q) == name), f); before = open(f, 'rb').read()
     lay = R.File3dm.Read(f).Layers[0].Name
-    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
-    assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
+    try: write.rename_layer(f, lay, lay + '_x')
+    except write.Refused:
+        assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak'); return
+    # accepted is only legitimate when the save provably lost nothing: every record of the output equals the source except the renamed
+    # layer record, the library-version marker (0xa0000026) and the revision-history record (0x20008027) the library always rewrites
+    import collections, struct
+    def recs(path):
+        b = open(path, 'rb').read(); c = collections.Counter(); o = 32; seen = collections.Counter()
+        while o + 12 <= len(b):
+            t, l = struct.unpack_from('<Iq', b, o)
+            if t == 0x7fff: break
+            r = write._table_records(b, t, seen[t]); seen[t] += 1
+            for x in (r[2] if r else []): c[(t, x[2], bytes(x[3]))] += 1
+            o += 12 + l
+        return c
+    A, B = recs(os.path.join(os.path.dirname(f), name) if False else next(q for q in FILES if os.path.basename(q) == name)), recs(f)
+    allowed = {(0x10000014, 0xa0000026), (0x10000014, 0x20008027), (0x10000011, 0x20008050)}
+    assert not [k for k in (A - B) | (B - A) if (k[0], k[1]) not in allowed], 'accepted a lossy file: records lost or changed'
+    assert sum(1 for k in A - B if k[:2] == (0x10000011, 0x20008050)) == 1
 
 
 def test_user_strings_in_snapshot_and_dropped_string_detected():

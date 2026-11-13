@@ -171,18 +171,19 @@ def restore_preview(src, tmp):
     with open(tmp, 'wb') as fh: fh.write(b)
     return True
 
-def _table_records(b, table):
+def _table_records(b, table, nth=0):
     """(table_off, table_len, [(rec_off, rec_total_len, typecode, payload)]) for the first top-level chunk `table`, or None"""
     import struct
     o = 32
     while o + 12 <= len(b):
         t, l = struct.unpack_from('<Iq', b, o)
         if l < 0 or o + 12 + l > len(b): return None
-        if t == table:
+        if t == table and nth > 0: nth -= 1
+        elif t == table:
             recs = []; r = o + 12
             while r + 12 <= o + 12 + l:
                 t2, l2 = struct.unpack_from('<Iq', b, r)
-                if t2 & 0x80000000: recs.append((r, 12, t2, b[r + 12:r + 12])); r += 12; continue   # short chunk: value lives in the length field, kept verbatim
+                if t2 & 0x80000000: recs.append((r, 12, t2, b[r + 4:r + 12])); r += 12; continue   # short chunk: value lives in the length field, kept verbatim
                 if l2 < 0 or r + 12 + l2 > o + 12 + l: return None
                 recs.append((r, 12 + l2, t2, b[r + 12:r + 12 + l2])); r += 12 + l2
             return o, l, recs
@@ -208,13 +209,13 @@ def restore_objects(src, tmp, table=0x10000013, skip=()):
 
 POSITIONAL_TABLES = (0x10000010, 0x10000012, 0x10000023, 0x10000025, 0x10000026)
 
-def restore_records(src, tmp, table, uuid_at=24, single=False, only=None):
+def restore_records(src, tmp, table, uuid_at=24, single=False, only=None, nth=0):
     """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
     For every output record whose plug-in/class id (payload offset `uuid_at`) matches a source record that differs, put the source bytes back
     (each record has its own CRC; table chunks have none), then fix the table and end-of-file lengths."""
     import struct
     a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
-    ta, tb = _table_records(a, table), _table_records(b, table)
+    ta, tb = _table_records(a, table, nth), _table_records(b, table, nth)
     if ta is None or tb is None: return ta is None and tb is None
     pool = {}
     key = (lambda t, p: t) if single else (lambda t, p: (t, p[uuid_at:uuid_at + 16]))   # single: one record per typecode (settings table)
@@ -226,7 +227,7 @@ def restore_records(src, tmp, table, uuid_at=24, single=False, only=None):
         if cand and p not in cand:
             p = cand.pop(0); changed = True
         elif cand and p in cand: cand.remove(p)
-        new.append(b[r:r + 12] if t & 0x80000000 else struct.pack('<Iq', t, len(p)) + p)
+        new.append(struct.pack('<I', t) + p if t & 0x80000000 else struct.pack('<Iq', t, len(p)) + p)
     if not changed: return True
     body = b''.join(new); o, l, _ = tb
     out = bytearray(b[:o + 4]) + struct.pack('<q', len(body)) + body + b[o + 12 + l:]
@@ -453,7 +454,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not restore_start(path, tmp): raise Refused('start section layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
         if ver >= 50 and not drop_added_table(path, tmp, 0x10000017): raise Refused('render-content table layout not understood')
-        if ver >= 50 and not restore_records(path, tmp, 0x10000017, single=True): raise Refused('render-content table layout not understood')
+        if ver >= 50 and not all(restore_records(path, tmp, 0x10000017, single=True, nth=k) for k in range(len(_top_chunks(open(path, 'rb').read(), 0x10000017) or []))): raise Refused('render-content table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000014, single=True, only=(0x20008022,)): raise Refused('properties table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000020): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
