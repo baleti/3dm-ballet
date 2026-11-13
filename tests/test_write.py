@@ -806,3 +806,35 @@ def test_symlinked_source_edits_target_and_keeps_link(tmp_path):
     except write.Refused: return   # refusing is also safe
     assert os.path.islink(link), 'link was replaced by a regular file'
     assert R.File3dm.Read(t).Layers[0].Name == lay + '_x'
+
+
+@pytest.mark.parametrize('name', ['ünï cödé ☃ 层 file.3dm', 'with  double  spaces.3dm', 'a' * 240 + '.3dm', 'b' * 251 + '.3dm'])
+def test_unusual_file_names_save_or_refuse_cleanly(name, tmp_path):
+    """names that leave no room for the .bak/.lock/.tmp suffixes must be refused (not crash half way); others save, with backup"""
+    f = str(tmp_path / name)
+    try: shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    except OSError: pytest.skip('filesystem refuses the name')
+    before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    try: write.rename_layer(f, lay, lay + '_x')
+    except write.Refused: saved = False
+    else: saved = True
+    if saved:
+        assert R.File3dm.Read(f).Layers[0].Name == lay + '_x' and open(f + '.bak', 'rb').read() == before
+    else:
+        assert open(f, 'rb').read() == before
+    left = [x for x in os.listdir(tmp_path) if x.startswith('.3dmballet-') or x.endswith('.lock')]
+    assert not left, left
+
+
+def test_backup_chain_restores_original_byte_identical(tmp_path):
+    """three consecutive saves keep .bak, .bak.1, .bak.2; the first backup is the untouched original"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); orig = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    states = [orig]
+    for i in range(3):
+        write.rename_layer(f, lay + '_' * i if i else lay, lay + '_' * (i + 1)); states.append(open(f, 'rb').read())
+    baks = sorted(x for x in os.listdir(tmp_path) if x.startswith('a.3dm.bak'))
+    assert len(baks) == 3, baks
+    contents = [open(str(tmp_path / b), 'rb').read() for b in baks]
+    assert sorted(contents) == sorted(states[:3]) and orig in contents
+    shutil.copy(str(tmp_path / 'a.3dm.bak'), str(tmp_path / 'restored.3dm'))
+    assert open(str(tmp_path / 'restored.3dm'), 'rb').read() == orig
