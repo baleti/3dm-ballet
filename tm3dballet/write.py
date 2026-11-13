@@ -190,12 +190,12 @@ def _table_records(b, table):
         o += 12 + l
     return None
 
-def restore_objects(src, tmp):
+def restore_objects(src, tmp, table=0x10000013):
     """object table: the library re-encodes 151 of 215 object records of the public samples. When the caller edits no objects, put every
     source object record back byte for byte (positional; count and typecodes must match), then fix table and end-of-file lengths."""
     import struct
     a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
-    ta, tb = _table_records(a, 0x10000013), _table_records(b, 0x10000013)
+    ta, tb = _table_records(a, table), _table_records(b, table)
     if ta is None or tb is None: return ta is None and tb is None
     if len(ta[2]) != len(tb[2]) or any(x[2] != y[2] for x, y in zip(ta[2], tb[2])): return False
     if all(x[3] == y[3] for x, y in zip(ta[2], tb[2])): return True
@@ -205,6 +205,8 @@ def restore_objects(src, tmp):
     struct.pack_into('<q', out, len(out) - 8, len(out))
     with open(tmp, 'wb') as fh: fh.write(out)
     return True
+
+POSITIONAL_TABLES = (0x10000010, 0x10000012, 0x10000023, 0x10000025, 0x10000026)
 
 def restore_records(src, tmp, table, uuid_at=24, single=False):
     """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
@@ -422,6 +424,9 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not restore_records(path, tmp, 0x10000020): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
         if ver >= 50 and not allow_objects and not restore_objects(path, tmp): raise Refused('object table layout changed by the save')
+        if ver >= 50 and not allow_objects:
+            for tb_ in POSITIONAL_TABLES:   # material, light, and other tables no edit API touches: source records back byte for byte
+                if not restore_objects(path, tmp, tb_): raise Refused('table 0x%x layout changed by the save' % tb_)
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
