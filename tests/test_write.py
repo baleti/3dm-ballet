@@ -732,3 +732,12 @@ def test_four_processes_renaming_same_file_at_once(tmp_path):
     names = [l.Name for l in R.File3dm.Read(f).Layers]
     assert sum(n.startswith('name') for n in names) == 1 and lay not in names
     assert not os.path.exists(f + '.3dmballet.lock')
+
+
+def test_write_timeout_scales_with_file_size(tmp_path):
+    f = tmp_path / 'a.bin'; f.write_bytes(b'0' * 10)
+    assert write.write_timeout(str(f)) == write.WRITE_TIMEOUT
+    with open(f, 'r+b') as fh: fh.truncate(100 * 2**20)
+    assert write.write_timeout(str(f)) == 1500
+    with open(f, 'r+b') as fh: fh.truncate(1000 * 2**20)
+    assert write.write_timeout(str(f)) == 3600

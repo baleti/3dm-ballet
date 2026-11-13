@@ -9,6 +9,11 @@ WRITE_TIMEOUT = 120
 
 class Refused(Exception): pass
 
+def write_timeout(path):
+    """library write step limit: 120 s, or 15 s per MB of source for big files (measured 6.5 s/MB on a loaded host), capped at one hour"""
+    try: return min(3600, max(WRITE_TIMEOUT, 15 * os.path.getsize(path) / 2**20))
+    except OSError: return WRITE_TIMEOUT
+
 def _guarded_write(m, tmp, ver, timeout=120):
     """m.Write in a daemon thread so a native stall turns into Refused instead of a frozen save.
     (Only effective if the native call releases the GIL; if it does not, nothing in-process can help.)"""
@@ -449,7 +454,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
     try: fd, tmp = tempfile.mkstemp(prefix='.3dmballet-', suffix='.tmp', dir=d); os.close(fd)
     except OSError as e: raise Refused('cannot create temp file next to source: %s' % e)
     try:
-        if not _guarded_write(m, tmp, ver, WRITE_TIMEOUT): raise Refused('write failed')
+        if not _guarded_write(m, tmp, ver, write_timeout(path)): raise Refused('write failed')
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
         if ver >= 50 and not restore_start(path, tmp): raise Refused('start section layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
