@@ -674,3 +674,23 @@ def test_rename_layer_preserves_layer_attributes(tmp_path):
                      R.File3dm.Read(p).Layers[0].IgesLevel, R.File3dm.Read(p).Layers[0].Expanded, str(R.File3dm.Read(p).Layers[0].Id))
     s0 = sig(g); write.rename_layer(g, 'A', 'B')
     assert sig(g) == s0 and R.File3dm.Read(g).Layers[0].Name == 'B'
+
+
+@pytest.mark.parametrize('step', ['restore_start', 'restore_preview', 'restore_records', 'drop_added_table', 'restore_objects'])
+def test_process_killed_during_restore_step_leaves_original_identical(step, tmp_path):
+    """hard kill inside each post-write restore step (works on the temp file only): original byte-identical, still loadable"""
+    import subprocess, sys, textwrap
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    root = os.path.dirname(os.path.dirname(__file__)); lay = R.File3dm.Read(f).Layers[0].Name
+    code = textwrap.dedent('''
+        import sys, os
+        sys.path[:0] = [%r, %r]
+        from tm3dballet import write
+        def die(*a, **k): os._exit(9)
+        setattr(write, %r, die)
+        write.rename_layer(%r, %r, 'zzz')
+    ''') % (root, os.path.join(root, '.deps'), step, f, lay)
+    r = subprocess.run([sys.executable, '-I', '-c', code], timeout=120)
+    assert r.returncode == 9
+    assert open(f, 'rb').read() == before
+    assert R.File3dm.Read(f).Layers[0].Name == lay
