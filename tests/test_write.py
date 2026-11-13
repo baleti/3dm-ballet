@@ -767,3 +767,20 @@ def test_disk_full_simulated_by_file_size_limit_leaves_original_intact(limit, tm
     if out != 'SAVED': assert open(f, 'rb').read() == before and R.File3dm.Read(f).Layers[0].Name == lay
     assert not os.path.exists(f + '.3dmballet.lock')
     assert not [x for x in os.listdir(tmp_path) if x.startswith('.3dmballet-')], os.listdir(tmp_path)
+
+
+@pytest.mark.parametrize('cut', [1, 8, 20, 100, 5000])
+def test_truncated_source_is_refused_untouched(cut, tmp_path):
+    """a source whose tail was cut off (partial copy, full disk when it was made) is never 'repaired' by a save"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    data = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    open(f, 'wb').write(data[:-cut]); before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak')
+
+
+def test_garbage_and_empty_sources_refused(tmp_path):
+    for name, data in (('empty.3dm', b''), ('junk.3dm', b'not a 3dm file' * 100), ('hdr.3dm', b'3D Geometry File Format        8' + b'\0' * 40)):
+        f = str(tmp_path / name); open(f, 'wb').write(data)
+        with pytest.raises(write.Refused): write.rename_layer(f, 'x', 'y')
+        assert open(f, 'rb').read() == data
