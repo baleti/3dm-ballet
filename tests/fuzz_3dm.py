@@ -18,6 +18,26 @@ try:
     print("gate:" + ";".join(write.gate(m)) if write.gate(m) else "ok")
     import hashlib, os
     h0 = hashlib.sha256(open(f, "rb").read()).hexdigest()
+    import shutil, struct, collections
+    def recs(path):
+        b = open(path, "rb").read(); c = collections.Counter(); o = 32; seen = collections.Counter()
+        while o + 12 <= len(b):
+            t, l = struct.unpack_from("<Iq", b, o)
+            if t == 0x7fff or l < 0: break
+            r = write._table_records(b, t, seen[t]); seen[t] += 1
+            for x in (r[2] if r else []): c[(t, x[2], bytes(x[3]))] += 1
+            o += 12 + l
+        return c
+    if m.ArchiveVersion >= 50 and len(m.Layers) and not write.gate(m):
+        g = f + ".rn.3dm"; shutil.copy(f, g); lay = m.Layers[0].Name
+        try:
+            write.rename_layer(g, lay, lay + "_fz")
+            A, B = recs(f), recs(g)
+            allowed = {(0x10000014, 0xa0000026), (0x10000014, 0x20008027), (0x10000011, 0x20008050)}
+            bad = [k for k in (A - B) | (B - A) if (k[0], k[1]) not in allowed]
+            if bad: print("ESCAPE:rename changed records " + ",".join(hex(k[0]) + "/" + hex(k[1]) for k in bad[:3]))
+            R.File3dm.Read(g)
+        except write.Refused: pass
     try:
         ds = write.edit_file(f, lambda mm: None, lambda d: d == [])
         print("write:applied" if hashlib.sha256(open(f, "rb").read()).hexdigest() != h0 or ds == [] else "ESCAPE")
@@ -59,6 +79,7 @@ def run(n=40, seed=1):
             p = rnd.randrange(len(b)); b[p:p + 64] = bytes(len(b[p:p + 64]))
         with tempfile.TemporaryDirectory() as d:
             f = os.path.join(d, 'x.3dm'); open(f, 'wb').write(b)
+            if os.environ.get('FUZZ_KEEP'): open(os.path.join(os.environ['FUZZ_KEEP'], 'case%d_%s' % (i, os.path.basename(src))), 'wb').write(b)
             try: r = subprocess.run([sys.executable, '-I', '-c', CHILD, f, os.path.join(HERE, '..'), os.path.join(HERE, '..', '.deps')], capture_output=True, text=True, timeout=40, env=env)
             except subprocess.TimeoutExpired: k = 'TIMEOUT'
             else: k = 'CRASH rc=%d' % r.returncode if r.returncode else ('ESCAPE' if 'ESCAPE' in r.stdout else (r.stdout.strip().split('\n')[-1] or 'silent'))

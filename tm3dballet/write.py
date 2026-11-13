@@ -283,6 +283,29 @@ def restore_start(src, tmp):
     with open(tmp, 'wb') as fh: fh.write(out)
     return True
 
+def drop_added_user_records(src, tmp):
+    """the library adds its own plug-in user records (ids in UPGRADED_USER_IDS) to files that had none; remove those the source did not have,
+    and the whole table when that leaves it empty and the source had no such table"""
+    import struct
+    have = {k for k, _ in user_records(src)}
+    a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
+    tb = _table_records(b, 0x10000020)
+    if tb is None: return True
+    keep = []; changed = False
+    for r, n, t, p in tb[2]:
+        k = p[24:40].hex() if not t & 0x80000000 else None
+        if k is not None and k in UPGRADED_USER_IDS and k not in have: changed = True; continue
+        keep.append(b[r:r + n])
+    if not changed: return True
+    o, l, _ = tb
+    if not keep and _table_records(a, 0x10000020) is None: out = bytearray(b[:o]) + b[o + 12 + l:]
+    else:
+        body = b''.join(keep); out = bytearray(b[:o + 4]) + struct.pack('<q', len(body)) + body + b[o + 12 + l:]
+    if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
+    struct.pack_into('<q', out, len(out) - 8, len(out))
+    with open(tmp, 'wb') as fh: fh.write(out)
+    return True
+
 def notes_of(path):
     """(is_html, text, visible, window ints) of the document notes record (0x20008022; rhino3dm exposes no Notes API so it was uncompared).
     The library bumps the record minor version, so the raw bytes differ; the content must not."""
@@ -298,6 +321,32 @@ def notes_of(path):
 
 # plug-in ids whose user record the library regenerates in its own, longer layout (minor-version upgrade, same leading bytes)
 UPGRADED_USER_IDS = {'d583bd812071c4419a57c449336ff12c', 'a551aa671d79ec4b8aedd23b462b6f87'}
+
+def structure_problem(path):
+    """strict walk of an archive >= V5: every top-level chunk and every record of the table chunks must nest exactly, typecodes must be non-zero,
+    the table chunk lengths must be consumed exactly and the end-of-file chunk must close the file and state its length. Returns a reason or None.
+    A source failing this is damaged; a save would silently re-synthesise parts of it."""
+    import struct
+    b = open(path, 'rb').read(); o = 32
+    if len(b) < 32 + 20: return 'file too short'
+    while True:
+        if o + 12 > len(b): return 'chunk walk ran past the end of the file'
+        t, l = struct.unpack_from('<Iq', b, o)
+        if t == 0 or t & 0x80000000: return 'bad top-level typecode 0x%x at %d' % (t, o)
+        if l < 0 or o + 12 + l > len(b): return 'chunk length out of bounds at %d' % o
+        if t == 0x7fff:
+            if o + 12 + l != len(b) or l != 8 or struct.unpack_from('<q', b, o + 12)[0] != len(b): return 'end-of-file chunk does not close the file consistently'
+            return None
+        if 0x10000010 <= t <= 0x10000026:
+            r = o + 12; end = o + 12 + l
+            while r < end:
+                if r + 12 > end: return 'table 0x%x record header overruns table at %d' % (t, r)
+                t2, l2 = struct.unpack_from('<Iq', b, r)
+                if t2 == 0: return 'table 0x%x has a zero record typecode at %d' % (t, r)
+                if t2 & 0x80000000: r += 12; continue
+                if l2 < 0 or r + 12 + l2 > end: return 'table 0x%x record length out of bounds at %d' % (t, r)
+                r += 12 + l2
+        o += 12 + l
 
 def user_records(path):
     """list of (plugin id hex, payload) of the user-table records (0x10000020 / 0x20008075); id sits at payload offset 24"""
@@ -447,6 +496,9 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
     why = gate(m)
     if why: raise Refused('; '.join(why))
     before = snapshot(m); ver = m.ArchiveVersion
+    if ver >= 50:
+        why = structure_problem(path)
+        if why: raise Refused('source file structure is damaged: ' + why)
     lsig = [json.dumps(l.Encode(), sort_keys=True, default=str) for l in m.Layers]
     edit(m)
     changed_layers = {i for i, l in enumerate(m.Layers) if i >= len(lsig) or json.dumps(l.Encode(), sort_keys=True, default=str) != lsig[i]}
@@ -461,6 +513,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not drop_added_table(path, tmp, 0x10000017): raise Refused('render-content table layout not understood')
         if ver >= 50 and not all(restore_records(path, tmp, 0x10000017, single=True, nth=k) for k in range(len(_top_chunks(open(path, 'rb').read(), 0x10000017) or []))): raise Refused('render-content table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000014, single=True, only=(0x20008022,)): raise Refused('properties table layout not understood')
+        if ver >= 50 and not drop_added_user_records(path, tmp): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000020): raise Refused('plug-in user table layout not understood')
         if ver >= 50 and not allow_settings and not restore_records(path, tmp, 0x10000015, single=True): raise Refused('settings table layout not understood')
         if ver >= 50 and not allow_objects and not restore_objects(path, tmp): raise Refused('object table layout changed by the save')

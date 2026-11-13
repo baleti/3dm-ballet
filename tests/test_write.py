@@ -838,3 +838,32 @@ def test_backup_chain_restores_original_byte_identical(tmp_path):
     assert sorted(contents) == sorted(states[:3]) and orig in contents
     shutil.copy(str(tmp_path / 'a.3dm.bak'), str(tmp_path / 'restored.3dm'))
     assert open(str(tmp_path / 'restored.3dm'), 'rb').read() == orig
+
+
+@pytest.mark.parametrize('name', ['fuzz43_zeroed_brep.3dm', 'fuzz34_zeroed_points.3dm'])
+def test_fuzz_escape_regression_library_added_user_record_dropped(name, tmp_path):
+    """fuzz found (zeroed 64 bytes in a public sample): the guarded save added a library plug-in user record the source never had.
+    Output records must equal the source except the renamed layer, version marker and revision record."""
+    import collections, struct
+    f = str(tmp_path / name); shutil.copy(os.path.join(os.path.dirname(__file__), 'regress', name), f); src = f + '.orig'; shutil.copy(f, src)
+    m = R.File3dm.Read(f); lay = m.Layers[0].Name
+    try: write.rename_layer(f, lay, lay + '_z')
+    except write.Refused: return
+    def recs(path):
+        b = open(path, 'rb').read(); c = collections.Counter(); o = 32; seen = collections.Counter()
+        while o + 12 <= len(b):
+            t, l = struct.unpack_from('<Iq', b, o)
+            if t == 0x7fff or l < 0: break
+            r = write._table_records(b, t, seen[t]); seen[t] += 1
+            for x in (r[2] if r else []): c[(t, x[2], bytes(x[3]))] += 1
+            o += 12 + l
+        return c
+    A, B = recs(src), recs(f); allowed = {(0x10000014, 0xa0000026), (0x10000014, 0x20008027), (0x10000011, 0x20008050)}
+    assert not [k for k in (A - B) | (B - A) if (k[0], k[1]) not in allowed]
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_clean_samples_pass_structure_walk(f):
+    m = R.File3dm.Read(f)
+    if m is None or m.ArchiveVersion < 50: pytest.skip('n/a')
+    assert write.structure_problem(f) is None
