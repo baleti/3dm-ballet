@@ -694,3 +694,24 @@ def test_process_killed_during_restore_step_leaves_original_identical(step, tmp_
     assert r.returncode == 9
     assert open(f, 'rb').read() == before
     assert R.File3dm.Read(f).Layers[0].Name == lay
+
+
+def test_four_processes_renaming_same_file_at_once(tmp_path):
+    """real race: 4 processes rename the same layer to different names; the file ends up valid with exactly one of the new names,
+    every loser is refused (lock or missing old name), no lock file remains"""
+    import subprocess, sys, textwrap
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    root = os.path.dirname(os.path.dirname(__file__)); lay = R.File3dm.Read(f).Layers[0].Name
+    code = textwrap.dedent('''
+        import sys
+        sys.path[:0] = [%r, %r]
+        from tm3dballet import write
+        try: write.rename_layer(%r, %r, sys.argv[1]); print('OK')
+        except write.Refused as e: print('REFUSED')
+    ''') % (root, os.path.join(root, '.deps'), f, lay)
+    ps = [subprocess.Popen([sys.executable, '-I', '-c', code, 'name%d' % i], stdout=subprocess.PIPE, text=True) for i in range(4)]
+    outs = [p.communicate(timeout=120)[0].strip() for p in ps]
+    assert outs.count('OK') == 1 and outs.count('REFUSED') == 3, outs
+    names = [l.Name for l in R.File3dm.Read(f).Layers]
+    assert sum(n.startswith('name') for n in names) == 1 and lay not in names
+    assert not os.path.exists(f + '.3dmballet.lock')
