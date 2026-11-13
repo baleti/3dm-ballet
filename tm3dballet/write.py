@@ -218,7 +218,7 @@ def restore_records(src, tmp, table, uuid_at=24, single=False, only=None, nth=0)
     """the library re-emits some records the object model cannot see in its own way (e.g. a font name 'Default' becomes 'ArialMT').
     For every output record whose plug-in/class id (payload offset `uuid_at`) matches a source record that differs, put the source bytes back
     (each record has its own CRC; table chunks have none), then fix the table and end-of-file lengths."""
-    import struct
+    import struct, collections
     a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
     ta, tb = _table_records(a, table, nth), _table_records(b, table, nth)
     if ta is None or tb is None: return ta is None and tb is None
@@ -226,9 +226,16 @@ def restore_records(src, tmp, table, uuid_at=24, single=False, only=None, nth=0)
     key = (lambda t, p: t) if single else (lambda t, p: (t, p[uuid_at:uuid_at + 16]))   # single: one record per typecode (settings table)
     for _, _, t, p in ta[2]:
         if only is None or t in only: pool.setdefault(key(t, p), []).append(p)
+    bytype_a = collections.defaultdict(list); bytype_b = collections.Counter()
+    for _, _, t, p in ta[2]:
+        if only is None or t in only: bytype_a[t].append(p)
+    for _, _, t, p in tb[2]:
+        if only is None or t in only: bytype_b[t] += 1
     new = []; changed = False
     for r, n, t, p in tb[2]:
         cand = pool.get(key(t, p))
+        if cand is None and len(bytype_a.get(t, ())) == bytype_b[t] == 1 and not single:
+            cand = bytype_a[t][:]   # id not found (layout differs / id damaged) but exactly one record of this typecode on both sides
         if cand and p not in cand:
             p = cand.pop(0); changed = True
         elif cand and p in cand: cand.remove(p)
@@ -278,6 +285,44 @@ def restore_start(src, tmp):
     (oa, na), (ob, nb) = ca[0], cb[0]
     if a[oa:oa + na] == b[ob:ob + nb]: return True
     out = bytearray(b[:ob]) + a[oa:oa + na] + b[ob + nb:]
+    if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
+    struct.pack_into('<q', out, len(out) - 8, len(out))
+    with open(tmp, 'wb') as fh: fh.write(out)
+    return True
+
+UNEDITED_TABLES = (0x10000010, 0x10000012, 0x10000014, 0x10000016, 0x10000017, 0x10000018, 0x10000019, 0x10000020, 0x10000021, 0x10000022, 0x10000023, 0x10000025, 0x10000026)
+ALLOWED_RECORD_DIFFS = {(0x10000014, 0xa0000026), (0x10000014, 0x20008027)}   # library version marker, revision history
+
+def record_changes(src, tmp, tables=UNEDITED_TABLES):
+    """records of the tables no supported edit touches that differ between source and output, as (table, typecode) pairs, after the
+    known benign differences (version marker, revision history). Non-empty means the save re-encoded or dropped something."""
+    import collections, struct
+    def recs(path):
+        b = open(path, 'rb').read(); c = collections.Counter(); seen = collections.Counter(); o = 32
+        while o + 12 <= len(b):
+            t, l = struct.unpack_from('<Iq', b, o)
+            if t == 0x7fff or l < 0: break
+            r = _table_records(b, t, seen[t]); seen[t] += 1
+            if t in tables:
+                if r is None: c[(t, -1, b'')] += 1
+                for x in (r[2] if r else []): c[(t, x[2], bytes(x[3]))] += 1
+            o += 12 + l
+        return c
+    A, B = recs(src), recs(tmp)
+    return sorted({(k[0], k[1]) for k in (A - B) | (B - A)} - ALLOWED_RECORD_DIFFS)
+
+def drop_added_typecodes(src, tmp, table, typecodes):
+    """the library adds records of the given typecodes to a table whose source copy had none of them (e.g. a font record in table 0x10000019);
+    remove those added records, keeping the table itself"""
+    import struct
+    a = open(src, 'rb').read(); b = open(tmp, 'rb').read()
+    ta, tb = _table_records(a, table), _table_records(b, table)
+    if ta is None or tb is None: return ta is None and tb is None
+    have = {t for _, _, t, _ in ta[2]}
+    keep = [b[r:r + n] for r, n, t, p in tb[2] if not (t in typecodes and t not in have)]
+    if len(keep) == len(tb[2]): return True
+    o, l, _ = tb; body = b''.join(keep)
+    out = bytearray(b[:o + 4]) + struct.pack('<q', len(body)) + body + b[o + 12 + l:]
     if len(out) < 20 or struct.unpack_from('<Iq', out, len(out) - 20)[:2] != (0x7fff, 8): return False
     struct.pack_into('<q', out, len(out) - 8, len(out))
     with open(tmp, 'wb') as fh: fh.write(out)
@@ -509,6 +554,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if not _guarded_write(m, tmp, ver, write_timeout(path)): raise Refused('write failed')
         if ver >= 50 and not restore_preview(path, tmp): raise Refused('preview image record layout not understood')
         if ver >= 50 and not restore_start(path, tmp): raise Refused('start section layout not understood')
+        if ver >= 50 and not drop_added_typecodes(path, tmp, 0x10000019, (0x20008074,)): raise Refused('table 0x10000019 layout not understood')
         if ver >= 50 and not restore_records(path, tmp, 0x10000019): raise Refused('table 0x10000019 layout not understood')
         if ver >= 50 and not drop_added_table(path, tmp, 0x10000017): raise Refused('render-content table layout not understood')
         if ver >= 50 and not all(restore_records(path, tmp, 0x10000017, single=True, nth=k) for k in range(len(_top_chunks(open(path, 'rb').read(), 0x10000017) or []))): raise Refused('render-content table layout not understood')
@@ -521,6 +567,9 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not allow_objects:
             for tb_ in POSITIONAL_TABLES:   # material, light, and other tables no edit API touches: source records back byte for byte
                 if not restore_objects(path, tmp, tb_): raise Refused('table 0x%x layout changed by the save' % tb_)
+        if ver >= 50 and not allow_objects:
+            rc = record_changes(path, tmp)
+            if rc: raise Refused('save re-encoded or dropped records of tables no edit touches: %s' % ['%x/%x' % (a, b & 0xffffffff) for a, b in rc[:4]])
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)

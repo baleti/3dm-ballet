@@ -867,3 +867,12 @@ def test_clean_samples_pass_structure_walk(f):
     m = R.File3dm.Read(f)
     if m is None or m.ArchiveVersion < 50: pytest.skip('n/a')
     assert write.structure_problem(f) is None
+
+
+def test_fuzz_escape_regression_reencoded_font_record_refused(tmp_path):
+    """fuzz seed 2 case 94 (64 zero bytes inside the 0x20008074 record of table 0x10000019): the library re-encodes that record and the id-keyed
+    restore cannot find it; the save must be refused, original untouched"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(os.path.dirname(__file__), 'regress', 'fuzz_s2c94_zeroed_font_record.3dm'), f); b0 = open(f, 'rb').read()
+    lay = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_z')
+    assert open(f, 'rb').read() == b0
