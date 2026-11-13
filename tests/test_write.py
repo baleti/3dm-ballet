@@ -661,3 +661,16 @@ def test_rename_ambiguous_nested_name_refused(tmp_path):
     g = str(tmp_path / 'n.3dm'); _nested_file(g); b0 = open(g, 'rb').read()
     with pytest.raises(write.Refused): write.rename_layer(g, 'Doors', 'Doors2')
     assert open(g, 'rb').read() == b0
+
+
+def test_rename_layer_preserves_layer_attributes(tmp_path):
+    """user strings, plot weight, colour, IGES level and expanded flag of the renamed layer survive the rename"""
+    import uuid
+    m = R.File3dm(); l = R.Layer(); l.Name = 'A'; l.Id = uuid.uuid4(); l.SetUserString('k', 'vü')
+    l.PlotWeight = 0.35; l.Color = (10, 20, 30, 255); l.IgesLevel = 7; l.Expanded = False
+    m.Layers.Add(l); m.Objects.AddPoint(R.Point3d(1, 2, 3), R.ObjectAttributes())
+    g = str(tmp_path / 'n.3dm'); m.Write(g, 8)
+    sig = lambda p: (dict(R.File3dm.Read(p).Layers[0].GetUserStrings()), R.File3dm.Read(p).Layers[0].PlotWeight, tuple(R.File3dm.Read(p).Layers[0].Color),
+                     R.File3dm.Read(p).Layers[0].IgesLevel, R.File3dm.Read(p).Layers[0].Expanded, str(R.File3dm.Read(p).Layers[0].Id))
+    s0 = sig(g); write.rename_layer(g, 'A', 'B')
+    assert sig(g) == s0 and R.File3dm.Read(g).Layers[0].Name == 'B'
