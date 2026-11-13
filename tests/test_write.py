@@ -741,3 +741,29 @@ def test_write_timeout_scales_with_file_size(tmp_path):
     assert write.write_timeout(str(f)) == 1500
     with open(f, 'r+b') as fh: fh.truncate(1000 * 2**20)
     assert write.write_timeout(str(f)) == 3600
+
+
+@pytest.mark.parametrize('limit', [1000, 20000, 60000])
+def test_disk_full_simulated_by_file_size_limit_leaves_original_intact(limit, tmp_path):
+    """RLIMIT_FSIZE makes every write past `limit` bytes fail (stand-in for a full disk): original byte-identical, loadable, no .bak/.lock left"""
+    if os.name != 'posix': pytest.skip('posix only')
+    import subprocess, sys, textwrap
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    root = os.path.dirname(os.path.dirname(__file__)); lay = R.File3dm.Read(f).Layers[0].Name
+    code = textwrap.dedent('''
+        import sys, signal, resource
+        sys.path[:0] = [%r, %r]
+        signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
+        from tm3dballet import write
+        resource.setrlimit(resource.RLIMIT_FSIZE, (%d, %d))
+        try: write.rename_layer(%r, %r, 'zzz'); print('SAVED')
+        except write.Refused: print('REFUSED')
+        except OSError: print('OSERROR')
+    ''') % (root, os.path.join(root, '.deps'), limit, limit, f, lay)
+    r = subprocess.run([sys.executable, '-I', '-c', code], capture_output=True, text=True, timeout=120)
+    out = r.stdout.strip()
+    assert out in ('REFUSED', 'OSERROR', 'SAVED'), (out, r.stderr[-300:])
+    if len(before) > limit: assert out != 'SAVED'
+    if out != 'SAVED': assert open(f, 'rb').read() == before and R.File3dm.Read(f).Layers[0].Name == lay
+    assert not os.path.exists(f + '.3dmballet.lock')
+    assert not [x for x in os.listdir(tmp_path) if x.startswith('.3dmballet-')], os.listdir(tmp_path)
