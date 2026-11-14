@@ -1356,3 +1356,20 @@ def test_directory_fsynced_after_replace_and_failure_is_harmless(tmp_path, monke
         return real(fd)
     monkeypatch.setattr(os, 'fsync', bad)
     write.rename_layer(f, 'R1', 'R2'); assert names(f) == ['R2']
+
+
+REGRESS = sorted(glob.glob(os.path.join(os.path.dirname(__file__), 'regress', '*.3dm')))
+
+@pytest.mark.parametrize('f', REGRESS, ids=os.path.basename)
+def test_regress_files_rename_never_traceback_original_intact(f, tmp_path):
+    """item 142: each permanent fuzz/hang regression file: rename is refused or verified; never an unexpected exception, source intact unless saved and valid"""
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); before = open(g, 'rb').read()
+    try:
+        m = R.File3dm.Read(g)
+        lay = m.Layers[0].Name if m is not None and len(m.Layers) else 'x'
+    except Exception: lay = 'x'
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused:
+        assert open(g, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']; return
+    assert lay + '_x' in names(g) or lay == 'x'
+    assert open(g + '.bak', 'rb').read() == before
