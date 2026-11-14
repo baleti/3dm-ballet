@@ -1078,3 +1078,24 @@ def test_failure_injected_at_each_save_step_leaves_original_and_no_tmp(target, e
     assert all(x == 'a.3dm' or x.startswith('a.3dm.bak') for x in left), left
     for x in left:
         if x.startswith('a.3dm.bak'): assert open(str(tmp_path / x), 'rb').read() == b
+
+
+def test_hardlinked_source_refused_both_names_untouched(tmp_path):
+    """queue 116: replacing a file with several hard links would silently detach the other names; refuse, both names byte-identical"""
+    if os.name != 'posix': pytest.skip('posix hard links')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); g = str(tmp_path / 'b.3dm'); os.link(f, g)
+    b = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused, match='hard link'): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == b and open(g, 'rb').read() == b and sorted(os.listdir(str(tmp_path))) == ['a.3dm', 'b.3dm']
+
+
+def test_reader_with_open_handle_sees_consistent_old_file_during_replace(tmp_path):
+    """queue 115: a process that holds the file open and reads it slowly while a rename replaces it gets the complete old bytes (atomic replace, never a torn mix)"""
+    if os.name != 'posix': pytest.skip('replace over an open file is posix semantics')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); b = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    with open(f, 'rb') as fh:
+        first = fh.read(100)
+        write.rename_layer(f, lay, lay + '_x')
+        rest = fh.read()
+    assert first + rest == b
+    assert R.File3dm.Read(f).Layers[0].Name == lay + '_x'
