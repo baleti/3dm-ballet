@@ -654,6 +654,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
             keep_group(path, tmp)
             with open(tmp, 'r+b') as fh: os.fsync(fh.fileno())
         except OSError as e: raise Refused('cannot finalise output, original untouched: %s' % e)
+        bak = None
         if backup:
             made = False
             try:
@@ -671,6 +672,14 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         try: os.replace(tmp, path)
         except OSError as e: raise Refused('replace failed, original untouched: %s' % e)
         fsync_dir(d)
+        try: inst = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+        except OSError: inst = None
+        if inst != tmp_sha:   # the installed bytes are not the verified bytes: put the original back from the byte-verified source copy
+            if backup and bak and os.path.exists(bak):
+                try: shutil.copyfile(bak, tmp); os.replace(tmp, path); fsync_dir(d)
+                except OSError as e: raise Refused('installed file differs from the verified output AND restoring failed (%s); the original is in %s' % (e, os.path.basename(bak)))
+                raise Refused('installed file differed from the verified output; the original was put back')
+            raise Refused('installed file differs from the verified output and there is no backup to restore from')
         return ds
     finally:
         if os.path.exists(tmp): os.remove(tmp)

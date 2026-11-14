@@ -1669,3 +1669,16 @@ def test_backup_with_flipped_byte_refused_and_removed(tmp_path, monkeypatch):
     with pytest.raises(write.Refused, match='backup'): write.rename_layer(f, 'brep', 'N')
     monkeypatch.undo()
     assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
+
+
+def test_installed_file_that_differs_from_verified_output_is_rolled_back(tmp_path, monkeypatch):
+    """item 188: os.replace 'succeeds' but the installed bytes differ (simulated: a bit flipped right after the replace): the original is put back from the backup and the save reports refusal"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); real = os.replace; n = [0]
+    def evil(a, b):
+        real(a, b); n[0] += 1
+        if n[0] == 1:
+            with open(b, 'r+b') as h: h.seek(300); c = h.read(1); h.seek(300); h.write(bytes([c[0] ^ 1]))
+    monkeypatch.setattr(os, 'replace', evil)
+    with pytest.raises(write.Refused, match='put back'): write.rename_layer(f, 'brep', 'N')
+    monkeypatch.undo()
+    assert open(f, 'rb').read() == before and not any(x.endswith(('.tmp', '.lock')) for x in os.listdir(tmp_path))
