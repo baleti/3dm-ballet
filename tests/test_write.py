@@ -1239,3 +1239,21 @@ def test_every_table_except_layers_identical_after_rename(f, tmp_path):
             if len(a) != len(b) or sum(x != y for x, y in zip(a, b)) > 1: bad.append((hex(c), 'layer table'))
         else: bad.append((hex(c), 'bytes'))
     assert not bad, bad
+
+
+def test_two_concurrent_processes_one_wins_other_refused(tmp_path):
+    """item 131: real race, 4 processes rename the same file to different names; every outcome is a valid file, no tmp or lock left"""
+    import subprocess, sys
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = ('import sys\nsys.path[:0]=[%r,%r]\nfrom tm3dballet import write\n'
+            'try: write.rename_layer(%r, "brep", sys.argv[1]); print("OK")\nexcept write.Refused as e: print("REF")\n') % (root, os.path.join(root, '.deps'), f)
+    ps = [subprocess.Popen([sys.executable, '-c', code, 'N%d' % i], stdout=subprocess.PIPE, text=True) for i in range(4)]
+    outs = [p.communicate()[0].strip() for p in ps]
+    assert all(o in ('OK', 'REF') for o in outs), outs
+    nm = names(f)
+    assert len(nm) == 1 and (nm[0] == 'brep' if outs.count('OK') == 0 else nm[0].startswith('N'))
+    left = [x for x in os.listdir(tmp_path) if x.endswith('.tmp') or x.endswith('.lock')]
+    assert not left, left
+    for x in os.listdir(tmp_path):
+        if '.bak' in x: assert names(str(tmp_path / x)) in (['brep'], [n for n in nm]) or names(str(tmp_path / x))[0].startswith('N')
