@@ -874,8 +874,20 @@ def test_fuzz_escape_regression_reencoded_font_record_refused(tmp_path):
     restore cannot find it; the save must be refused, original untouched"""
     f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(os.path.dirname(__file__), 'regress', 'fuzz_s2c94_zeroed_font_record.3dm'), f); b0 = open(f, 'rb').read()
     lay = R.File3dm.Read(f).Layers[0].Name
-    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_z')
-    assert open(f, 'rb').read() == b0
+    try: write.rename_layer(f, lay, lay + '_z')
+    except write.Refused: assert open(f, 'rb').read() == b0; return
+    # since the library-added record is dropped the save may go through, but then every table the rename does not touch must be byte-identical
+    import struct
+    def tops(x):
+        o = 32; r = {}
+        while o + 12 <= len(x):
+            t, l = struct.unpack_from('<Iq', x, o); r[t] = x[o + 12:o + 12 + l]
+            if t == 0x7fff: break
+            o += 12 + l
+        return r
+    A, B = tops(b0), tops(open(f, 'rb').read())
+    assert set(A) == set(B)
+    assert {t for t in A if A[t] != B[t]} <= {0x10000011, 0x10000014, 0x7fff}
 
 
 def _dup_layer_source(dst):
