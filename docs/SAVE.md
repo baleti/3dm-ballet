@@ -82,3 +82,15 @@ Stale locks: a lock whose pid no longer exists (posix) is cleared at once; other
 - Bytes after the last chunk (junk or zeros) are refused, since the writer would drop them. FIFO/directory sources refused without hanging.
 - A read-only source (no write permission) is refused up front; the flag is never overridden.
 - CLI works with spaces, accents and a leading-dash file name given as a path (a bare `--` terminator is not supported).
+
+## Additional proofs (queue 181-199)
+
+- **Temp file re-verified before install:** its sha256 is taken when the gate judges it and re-checked right before the replace; a flipped byte in between refuses the save.
+- **Backup verified by content:** the backup copy must hash equal to the source (not only equal size), else the save is refused and the bad backup removed.
+- **Installed file verified:** after the replace the installed bytes are re-hashed; on mismatch the original is put back from the verified backup (or the save reports that no backup exists). Limit: this sees what a re-read sees, not a lying disk.
+- A one-byte source change with size and mtime restored during the edit is refused.
+- 8 processes (4 rename + 4 restore-backup) on one file: lock serializes, file and every backup always valid. SIGSTOP of a saving process holds the lock, a second save is refused.
+- SIGKILL during rename (earlier) and during restore-backup (30 runs): file is the old or the new version, never partial.
+- RLIMIT_FSIZE below the output size: refused, original intact. ulimit -v 1.5 GB and 4 GB: 45 MB file saves.
+- Random bit flips (60 on a V7 sample): 57 refused, 3 saved with backup equal to the damaged source, 0 damaged. Inserted bytes can make the library reader hang; the 30 s probe timeout refuses those files safely.
+- 100-deep layer chain, V5/V6 samples (20 of 21 saved, 1 refused), V8 samples, FIFO/directory sources: all safe.
