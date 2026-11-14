@@ -979,3 +979,16 @@ def test_deep_layer_tree_rename_not_falsely_refused(tmp_path):
     assert write.rename_layer(f, 'L150', 'L150x') == ['layers differs']
     ra = [r[3] for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r[3] for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
     assert len(ra) == len(rb) == 300 and sum(x != y for x, y in zip(ra, rb)) == 1
+
+
+def test_rename_with_non_ascii_layer_names_keeps_other_layers(tmp_path):
+    """UTF-16 names (umlaut, CJK, astral emoji) in other layers survive a rename unchanged; renamed layer takes the new unicode name"""
+    f = str(tmp_path / 'u.3dm'); m = R.File3dm()
+    names = ['Ünïcode Ebene', '壁 / 墙', 'Ωmega 😀', 'plain']
+    for n in names:
+        l = R.Layer(); l.Name = n; m.Layers.Add(l)
+    assert m.Write(f, 7)
+    write.rename_layer(f, names[0], 'Ebene ß')
+    assert [l.Name for l in R.File3dm.Read(f).Layers] == ['Ebene ß'] + names[1:]
+    write.rename_layer(f, names[2], 'x')
+    assert [l.Name for l in R.File3dm.Read(f).Layers] == ['Ebene ß', names[1], 'x', 'plain']
