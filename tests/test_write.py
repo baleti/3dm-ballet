@@ -1185,3 +1185,22 @@ def test_stale_lock_from_killed_save_is_cleared_fresh_lock_is_respected(tmp_path
     old = time.time() - write.LOCK_STALE_S - 60; os.utime(lk, (old, old))
     write.rename_layer(f, lay, lay + '_x')
     assert R.File3dm.Read(f).Layers[0].Name == lay + '_x' and not os.path.exists(lk)
+
+
+@pytest.mark.parametrize('name', ['V7-v7_my_mesh.3dm', 'V7-v7_my_mesh_with_material.3dm', 'V7-v7_my_brep.3dm', 'V6-my_curves.3dm', 'V5-v5_my_mesh.3dm', 'V8-v8_caps_and_joins.3dm'])
+def test_glb_export_after_rename_has_identical_geometry(name, tmp_path):
+    """queue 127: the exported glb of a saved output has a byte-identical geometry buffer and, ignoring names, identical JSON (a rename must not touch geometry)"""
+    import json, struct
+    from tm3dballet import reader
+    src = os.path.join(D, name)
+    if not os.path.exists(src): pytest.skip('sample missing')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); nm = R.File3dm.Read(f).Layers[0].Name
+    try: write.rename_layer(f, nm, nm + '_ZQ')
+    except write.Refused: pytest.skip('refused by the gate')
+    def glb(p, o):
+        reader.to_glb(p, o); b = open(o, 'rb').read(); jl = struct.unpack_from('<I', b, 12)[0]; return json.loads(b[20:20 + jl]), b[20 + jl:]
+    def strip(x):
+        if isinstance(x, dict): return {k: strip(v) for k, v in x.items() if k != 'name'}
+        return [strip(v) for v in x] if isinstance(x, list) else x
+    j0, b0 = glb(src, str(tmp_path / 's.glb')); j1, b1 = glb(f, str(tmp_path / 'o.glb'))
+    assert b0 == b1 and strip(j0) == strip(j1)
