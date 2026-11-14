@@ -1703,3 +1703,15 @@ def test_restore_picks_numerically_newest_backup_not_lexicographic(tmp_path):
         shutil.copy(src, f + suffix); m = R.File3dm.Read(f + suffix); m.Layers[0].Name = name; m.Write(f + suffix, 7)
     write.restore_backup(f)
     assert names(f) == ['B10'] and names(f + '.bak.1') == ['brep']   # kept under the first free name
+
+
+def test_installed_mismatch_without_backup_reports_clearly(tmp_path, monkeypatch):
+    """item 199: backup=False and the installed bytes differ: a clear refusal (no crash, no claim of success)"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); real = os.replace; n = [0]
+    def evil(a, b):
+        real(a, b); n[0] += 1
+        if n[0] == 1:
+            with open(b, 'r+b') as h: h.seek(300); c = h.read(1); h.seek(300); h.write(bytes([c[0] ^ 1]))
+    monkeypatch.setattr(os, 'replace', evil)
+    def edit(m): m.Layers[0].Name = 'N'
+    with pytest.raises(write.Refused, match='no backup to restore'): write.edit_file(f, edit, lambda ds: ds == ['layers differs'], backup=False)
