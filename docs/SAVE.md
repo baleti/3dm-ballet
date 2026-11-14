@@ -45,3 +45,8 @@ CLI exit codes (`rename-layer`): 0 = dry run OK or saved; 1 = refused (gate, mis
 read-only directory), message `REFUSED, file untouched: ...` on stdout, source bytes unchanged; 2 = usage error or
 missing viewer dependency. Asserted in tests/test_cli.py. Backup names (`.bak`, `.bak.N`) never reuse an existing
 sibling file name, tested in tests/test_write.py.
+
+Permissions and times: the permission bits of the original are kept on the saved file (tested for 0644, 0600, 0664,
+0755; a read-only 0444 source is either saved with 0444 kept or refused); the saved file gets the save time as mtime;
+the backup is made with copy2, so it keeps the source mtime. Ownership is not touched (no chown). A disk-full during
+the backup copy removes the partial backup and refuses the save.

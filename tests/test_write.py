@@ -1311,3 +1311,19 @@ def test_partial_backup_copy_leaves_no_truncated_bak(tmp_path, monkeypatch):
     monkeypatch.setattr(shutil, 'copy2', half)
     with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == b and os.listdir(str(tmp_path)) == ['a.3dm']
+
+
+@pytest.mark.parametrize('mode', [0o644, 0o600, 0o664, 0o444, 0o755])
+def test_mode_kept_mtime_updated_backup_keeps_source_mtime(mode, tmp_path):
+    """item 138: permission bits of the original survive the replace; the output mtime is the save time; the backup keeps the source mtime"""
+    if os.name != 'posix': pytest.skip('posix modes')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    old = 1_500_000_000; os.utime(f, (old, old)); os.chmod(f, mode)
+    try: write.rename_layer(f, 'brep', 'R')
+    except write.Refused as e:
+        assert mode == 0o444 and open(f, 'rb').read(), e   # refusing a read-only source is also safe
+        return
+    assert (os.stat(f).st_mode & 0o777) == mode
+    assert os.stat(f).st_mtime > old + 1000
+    assert int(os.stat(f + '.bak').st_mtime) == old
+    assert names(f) == ['R']
