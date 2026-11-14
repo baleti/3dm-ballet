@@ -28,3 +28,15 @@ V5, 3 known lossy), 0 damaged. Hard kill mid-save and before the replace leaves 
 
 Not covered: Rhino itself opening the result, files above V8, document user text keys/values (not exposed by rhino3dm,
 only counts compared), Windows/macOS runs.
+
+## Proven so far (public samples only, 106 files: 52 saveable, 54 refused)
+
+Tests: tests/test_write.py (roundtrip, gate, lossy files, kill mid-save, symlink/hardlink/readonly, source swapped
+during edit), tests/test_savegate.py, tests/test_geom_after_rename.py (per-object bbox and point/face counts equal
+before and after rename on all 52 saveable samples), glb export of source vs output identical (geometry binary
+byte-identical on all 52), table chunks (materials, bitmaps, object table) byte-identical after rename and after a
+second rename, independent pure-Python chunk CRC walk of every output, stale lock after SIGKILL, write failure
+injection (os.replace, fsync, write), CLI dry run on all 106 samples (exit 0 or 1, no traceback).
+
+Limits, NOT proven: no Rhino application oracle (nothing was opened in Rhino), no directory fsync after replace,
+archive versions below V5 and above V8 refused, Windows/macOS untested, only layer rename is an edit operation.
