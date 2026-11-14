@@ -1008,3 +1008,26 @@ def test_rename_long_and_colon_layer_names(tmp_path):
     assert open(f, 'rb').read() == before
     write.rename_layer(f, names[3], 'q:r')
     assert [l.Name for l in R.File3dm.Read(f).Layers] == ['b' * 250, 'A::B', 'x:y', 'q:r']
+
+
+def test_source_with_gaps_in_layer_indices_keeps_other_records(tmp_path):
+    """queue 108: layers A,B,C whose record indices are patched to 0,5,9 (CRC-valid). The save may refuse; if it saves, untouched layer
+    records must stay byte-identical (no silent renumbering to 0,1,2) and the file must reload."""
+    import struct, zlib
+    f = str(tmp_path / 'g.3dm'); m = R.File3dm()
+    for n in 'ABC':
+        l = R.Layer(); l.Name = n; m.Layers.Add(l)
+    m.Write(f, 7); d = bytearray(open(f, 'rb').read())
+    for r, new in zip([r for r in write._table_records(bytes(d), 0x10000011)[2] if r[2] == 0x20008050], (0, 5, 9)):
+        p0 = r[0] + 12; p = bytearray(d[p0:p0 + len(r[3])]); assert struct.unpack_from('<I', p, 61)[0] in (0, 1, 2)
+        struct.pack_into('<I', p, 61, new)
+        inner = [i for i in range(56, len(p) - 12) if struct.unpack_from('<I', p, i)[0] == 0x40008000][0]
+        struct.pack_into('<I', p, len(p) - 20, zlib.crc32(bytes(p[56:inner] + p[inner + 28:len(p) - 20])))
+        d[p0:p0 + len(p)] = p
+    open(f, 'wb').write(d); before = bytes(d)
+    assert R.File3dm.Read(f) is not None
+    try: write.rename_layer(f, 'A', 'AA')
+    except write.Refused: assert open(f, 'rb').read() == before; return
+    ra = [r for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
+    assert ra[1][3] == rb[1][3] and ra[2][3] == rb[2][3]
+    assert [l.Name for l in R.File3dm.Read(f).Layers] == ['AA', 'B', 'C']
