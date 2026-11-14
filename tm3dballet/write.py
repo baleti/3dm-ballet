@@ -636,6 +636,7 @@ def rename_layer(path, old, new):
         if any(ord(c) < 32 or ord(c) == 127 for c in new): raise Refused('invalid layer name: control character')
         if '::' in new: raise Refused('invalid layer name: contains the layer path separator')
         if len(new) > 1000: raise Refused('invalid layer name: longer than 1000 characters')
+        if new == old: raise Refused('new layer name equals the old one, nothing to save')
         if any(l.Name.lower() == new.lower() and str(l.ParentLayerId) == str(n[0].ParentLayerId) and l is not n[0] and l.Index != n[0].Index for l in m.Layers):
             raise Refused('a sibling layer already has that name')
         n[0].Name = new

@@ -917,3 +917,10 @@ def test_pre_v5_archives_always_refused_and_untouched(tmp_path):
         with pytest.raises(write.Refused): write.rename_layer(f, m.Layers[0].Name, m.Layers[0].Name + '_x')
         assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak'); n += 1
     assert n >= 40
+
+
+def test_rename_to_same_name_refused_with_clear_reason(tmp_path):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(os.path.dirname(__file__), 'data', 'V7-v7_my_curves.3dm'), f); b = open(f, 'rb').read()
+    n = R.File3dm.Read(f).Layers[0].Name
+    with pytest.raises(write.Refused, match='equals the old'): write.rename_layer(f, n, n)
+    assert open(f, 'rb').read() == b and os.listdir(str(tmp_path)) == ['a.3dm']
