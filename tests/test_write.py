@@ -1099,3 +1099,37 @@ def test_reader_with_open_handle_sees_consistent_old_file_during_replace(tmp_pat
         rest = fh.read()
     assert first + rest == b
     assert R.File3dm.Read(f).Layers[0].Name == lay + '_x'
+
+
+def _crc_counts(b):
+    """(flagged, valid): table records carrying the 0x8000 CRC flag, and how many have crc32(data[:-4]) equal to their last 4 bytes. Records with a nested chunk
+    keep a CRC that skips the nested part, so they count as flagged but not valid; only the invalid count must never grow."""
+    import struct, zlib
+    o = 32; fl = ok = 0
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if t == 0x7fff: break
+        if 0x10000010 <= t <= 0x10000026:
+            r = o + 12
+            while r + 12 <= o + 12 + l:
+                t2, l2 = struct.unpack_from('<Iq', b, r)
+                if t2 & 0x80000000: r += 12; continue
+                if t2 & 0x8000 and l2 >= 4:
+                    fl += 1; d = b[r + 12:r + 12 + l2]; ok += struct.unpack_from('<I', d, l2 - 4)[0] == zlib.crc32(d[:-4])
+                r += 12 + l2
+        o += 12 + l
+    return fl, ok
+
+
+def test_saved_outputs_have_no_more_crc_invalid_records_than_source(tmp_path):
+    """queue 121: independent of the library, every CRC-flagged table record of a saved output verifies at least as well as in the source (a wrong CRC is what Rhino reports as a corrupt file)"""
+    n = 0
+    for src in sorted(glob.glob(os.path.join(os.path.dirname(__file__), 'data*', '*.3dm'))):
+        f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); b = open(f, 'rb').read(); nm = R.File3dm.Read(f).Layers[0].Name
+        try: write.rename_layer(f, nm, nm + '_x')
+        except write.Refused: continue
+        finally:
+            for x in glob.glob(f + '.*'): os.remove(x)
+        (f0, o0), (f1, o1) = _crc_counts(b), _crc_counts(open(f, 'rb').read())
+        assert f1 - o1 <= f0 - o0, (os.path.basename(src), (f0, o0), (f1, o1)); n += 1
+    assert n >= 40
