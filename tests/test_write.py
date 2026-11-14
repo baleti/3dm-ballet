@@ -1204,3 +1204,14 @@ def test_glb_export_after_rename_has_identical_geometry(name, tmp_path):
         return [strip(v) for v in x] if isinstance(x, list) else x
     j0, b0 = glb(src, str(tmp_path / 's.glb')); j1, b1 = glb(f, str(tmp_path / 'o.glb'))
     assert b0 == b1 and strip(j0) == strip(j1)
+
+def test_backup_name_never_clobbers_sibling_files(tmp_path):
+    """item 119: pre-existing sibling files named like backups (any case) stay byte-identical, backup gets a free name"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    src = open(f, 'rb').read()
+    sib = {'a.3dm.bak': b'one', 'a.3dm.bak.1': b'two', 'A.3DM.bak': b'three', 'a.3dm.3dmballet.lock.x': b'four'}
+    for n, c in sib.items(): (tmp_path / n).write_bytes(c)
+    write.rename_layer(f, 'brep', 'R')
+    for n, c in sib.items(): assert (tmp_path / n).read_bytes() == c
+    assert (tmp_path / 'a.3dm.bak.2').read_bytes() == src
+    assert sorted(os.listdir(tmp_path)) == sorted(list(sib) + ['a.3dm', 'a.3dm.bak.2'])

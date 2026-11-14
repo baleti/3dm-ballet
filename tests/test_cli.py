@@ -37,3 +37,26 @@ def test_cli_rename_layer_by_full_path_dry_run_and_usage(tmp_path):
     r = subprocess.run([cli, 'rename-layer', f, 'B::Sub', 'S2'], capture_output=True, text=True); assert r.returncode == 0 and 'dry run OK' in r.stdout, r.stdout + r.stderr
     r = subprocess.run([cli, 'rename-layer', f], capture_output=True, text=True); assert r.returncode == 2 and 'Parent::Child' in r.stdout
     assert open(f, 'rb').read() == before
+
+def test_cli_exit_codes_per_refusal_class(tmp_path, capsys):
+    """item 122: usage=2, every refusal=1 with 'REFUSED, file untouched' on stdout, source bytes unchanged, success=0"""
+    import shutil, rhino3dm as R
+    from tm3dballet import cli
+    D = os.path.join(os.path.dirname(__file__), 'data')
+    def put(n, src='V7-v7_my_brep.3dm'):
+        p = str(tmp_path / n); shutil.copy(os.path.join(D, src), p); return p
+    def run(f, *a):
+        before = open(f, 'rb').read(); rc = cli.main(['rename-layer', f] + list(a)); out = capsys.readouterr().out
+        assert open(f, 'rb').read() == before; return rc, out
+    f = put('a.3dm'); lay = R.File3dm.Read(f).Layers[0].Name
+    rc, out = run(f, 'nope', 'x', '--overwrite'); assert rc == 1 and 'REFUSED, file untouched' in out          # edit refused
+    old = put('old.3dm', 'V1-v1_DeformCubes.3dm'); rc, out = run(old, 'a', 'b', '--overwrite'); assert rc == 1 and 'REFUSED' in out  # gate
+    open(f + '.3dmballet.lock', 'w').close(); rc, out = run(f, lay, 'x', '--overwrite'); assert rc == 1 and 'in progress' in out      # lock held
+    os.remove(f + '.3dmballet.lock')
+    os.link(f, str(tmp_path / 'hl.3dm')); rc, out = run(f, lay, 'x', '--overwrite'); assert rc == 1 and 'REFUSED' in out              # hardlink
+    os.remove(str(tmp_path / 'hl.3dm'))
+    if os.geteuid() != 0:
+        d = tmp_path / 'ro'; d.mkdir(); g = str(d / 'a.3dm'); shutil.copy(f, g); os.chmod(d, 0o555)
+        try: rc, out = run(g, lay, 'x', '--overwrite'); assert rc == 1 and 'REFUSED' in out                                           # readonly dir
+        finally: os.chmod(d, 0o755)
+    assert cli.main(['rename-layer', f]) == 2

@@ -40,3 +40,8 @@ injection (os.replace, fsync, write), CLI dry run on all 106 samples (exit 0 or 
 
 Limits, NOT proven: no Rhino application oracle (nothing was opened in Rhino), no directory fsync after replace,
 archive versions below V5 and above V8 refused, Windows/macOS untested, only layer rename is an edit operation.
+
+CLI exit codes (`rename-layer`): 0 = dry run OK or saved; 1 = refused (gate, missing layer, lock held, hardlink,
+read-only directory), message `REFUSED, file untouched: ...` on stdout, source bytes unchanged; 2 = usage error or
+missing viewer dependency. Asserted in tests/test_cli.py. Backup names (`.bak`, `.bak.N`) never reuse an existing
+sibling file name, tested in tests/test_write.py.
