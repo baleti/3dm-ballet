@@ -50,3 +50,7 @@ Permissions and times: the permission bits of the original are kept on the saved
 0755; a read-only 0444 source is either saved with 0444 kept or refused); the saved file gets the save time as mtime;
 the backup is made with copy2, so it keeps the source mtime. Ownership is not touched (no chown). A disk-full during
 the backup copy removes the partial backup and refuses the save.
+
+Restore: `3dm-ballet restore-backup FILE` copies the newest `FILE.bak*` (highest N) back over FILE through a temp file,
+after the backup passes the same probe and structure checks as a source; the replaced file is kept as a new backup so a
+restore can be undone. Exit 1 and no change when there is no backup or it is truncated/damaged.

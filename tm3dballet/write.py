@@ -658,3 +658,47 @@ def rename_layer(path, old, new):
             raise Refused('a sibling layer already has that name')
         n[0].Name = new
     return edit_file(path, edit, lambda ds: ds == ['layers differs'])
+
+
+def restore_backup(path):
+    """put the newest backup (FILE.bak.N with the highest N, else FILE.bak) back as FILE, atomically. The file being replaced is first
+    kept as a new backup, so a restore can itself be undone. The backup must pass the same structure and probe checks as a source."""
+    import re
+    d, base = os.path.split(os.path.realpath(path)); pat = re.compile(re.escape(base) + r'\.bak(?:\.(\d+))?$')
+    found = [(int(m.group(1) or 0), n) for n in os.listdir(d) for m in [pat.match(n)] if m]
+    if not found: raise Refused('no backup found for %s' % base)
+    bak = os.path.join(d, max(found)[1]); path = os.path.join(d, base)
+    lk = _lock(path)
+    try:
+        if os.path.islink(bak) or not os.path.isfile(bak): raise Refused('backup is not a regular file')
+        try: probe.probe(bak)
+        except Exception as e: raise Refused('backup is not readable: %s' % e)
+        why = structure_problem(bak)
+        if why: raise Refused('backup file structure is damaged: ' + why)
+        if R.File3dm.Read(bak) is None: raise Refused('backup is not readable')
+        try: fd, tmp = tempfile.mkstemp(prefix='.3dmballet-', suffix='.tmp', dir=d); os.close(fd)
+        except OSError as e: raise Refused('cannot create temp file: %s' % e)
+        try:
+            try:
+                shutil.copyfile(bak, tmp)
+                if os.path.getsize(tmp) != os.path.getsize(bak): raise OSError('size mismatch')
+                if os.path.exists(path): shutil.copymode(path, tmp)
+                with open(tmp, 'r+b') as fh: os.fsync(fh.fileno())
+                if open(tmp, 'rb').read() != open(bak, 'rb').read(): raise OSError('copy differs')
+            except OSError as e: raise Refused('cannot prepare restore, file untouched: %s' % e)
+            keep = None
+            if os.path.exists(path):
+                keep = path + '.bak'; k = 0
+                while os.path.lexists(keep): k += 1; keep = '%s.bak.%d' % (path, k)
+                try: shutil.copy2(path, keep)
+                except OSError as e:
+                    if os.path.lexists(keep): os.remove(keep)
+                    raise Refused('cannot keep the current file, nothing changed: %s' % e)
+            try: os.replace(tmp, path)
+            except OSError as e: raise Refused('replace failed, file untouched: %s' % e)
+            return os.path.basename(bak), os.path.basename(keep) if keep else None
+        finally:
+            if os.path.exists(tmp): os.remove(tmp)
+    finally:
+        try: os.remove(lk)
+        except OSError: pass

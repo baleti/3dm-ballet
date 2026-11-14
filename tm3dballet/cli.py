@@ -49,6 +49,12 @@ def main(argv=None):
         try: ds = write.rename_layer(target, old, new)
         except write.Refused as e: print('REFUSED, file untouched: %s' % e); return 1
         print(('SAVED in place (backup %s.bak*): ' % f if real else 'dry run OK, nothing written (use --overwrite): ') + ', '.join(ds)); return 0
+    if a[0] == 'restore-backup':
+        from . import write
+        if len(a) < 2: print('usage: restore-backup FILE   (puts the newest FILE.bak* back; the current file is kept as a new backup)'); return 2
+        try: src, kept = write.restore_backup(a[1])
+        except write.Refused as e: print('REFUSED, file untouched: %s' % e); return 1
+        print('RESTORED from %s (previous file kept as %s)' % (src, kept)); return 0
     f = a[1] if a[0] == 'open' else a[0]
     print(json.dumps(reader.info(f), indent=1))
     out = os.path.join(tempfile.mkdtemp(prefix='3dmb-'), os.path.basename(f) + '.glb')

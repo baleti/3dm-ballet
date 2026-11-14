@@ -60,3 +60,25 @@ def test_cli_exit_codes_per_refusal_class(tmp_path, capsys):
         try: rc, out = run(g, lay, 'x', '--overwrite'); assert rc == 1 and 'REFUSED' in out                                           # readonly dir
         finally: os.chmod(d, 0o755)
     assert cli.main(['rename-layer', f]) == 2
+
+
+def test_restore_backup_roundtrip_and_refusals(tmp_path, capsys):
+    """item 141: restore puts the newest backup back byte for byte, keeps the replaced file as a new backup, refuses missing/damaged backups"""
+    import shutil
+    from tm3dballet import cli
+    src = os.path.join(os.path.dirname(__file__), 'data', 'V7-v7_my_brep.3dm'); f = str(tmp_path / 'a.3dm'); shutil.copy(src, f)
+    orig = open(f, 'rb').read()
+    assert cli.main(['restore-backup', f]) == 1 and open(f, 'rb').read() == orig            # no backup yet
+    assert cli.main(['rename-layer', f, 'brep', 'R1', '--overwrite']) == 0
+    assert cli.main(['rename-layer', f, 'R1', 'R2', '--overwrite']) == 0
+    r2 = open(f, 'rb').read(); capsys.readouterr()
+    assert cli.main(['restore-backup', f]) == 0                                              # newest backup = state with layer R1
+    import rhino3dm as R
+    assert R.File3dm.Read(f).Layers[0].Name == 'R1'
+    assert open(str(tmp_path / 'a.3dm.bak.2'), 'rb').read() == r2                            # the replaced file is kept: restore is undoable
+    assert open(str(tmp_path / 'a.3dm.bak'), 'rb').read() == orig
+    assert not [x for x in os.listdir(tmp_path) if x.endswith(('.tmp', '.lock'))]
+    bad = str(tmp_path / 'b.3dm'); shutil.copy(src, bad); before = open(bad, 'rb').read()
+    open(bad + '.bak', 'wb').write(orig[:len(orig) // 2])                                    # truncated backup
+    assert cli.main(['restore-backup', bad]) == 1 and open(bad, 'rb').read() == before
+    assert sorted(x for x in os.listdir(tmp_path) if x.startswith('b.')) == ['b.3dm', 'b.3dm.bak']
