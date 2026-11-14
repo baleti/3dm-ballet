@@ -948,3 +948,20 @@ def test_source_with_dangling_layer_parent_keeps_child_record_bytes(tmp_path):
     before = open(f, 'rb').read(); write.rename_layer(f, 'A', 'AA')
     ra = [r for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
     assert ra[1][3] == rb[1][3] and ra[0][3] != rb[0][3]
+
+
+def test_source_with_layer_parent_cycle_refused_or_records_preserved(tmp_path):
+    """queue 104: A.parent=B, B.parent=A (CRC-valid byte patch of the 0x2fffc chunk). The save may refuse (it does today) but must never
+    leave the original damaged; if it ever saves, every untouched layer record must stay byte-identical."""
+    import struct, zlib
+    f = str(tmp_path / 'a.3dm'); m = R.File3dm(); a = R.Layer(); a.Name = 'A'; m.Layers.Add(a); b = R.Layer(); b.Name = 'B'; b.ParentLayerId = m.Layers[0].Id; m.Layers.Add(b)
+    m.Write(f, 7); d = bytearray(open(f, 'rb').read()); ids = [l.Id for l in R.File3dm.Read(f).Layers]
+    recs = [r for r in write._table_records(bytes(d), 0x10000011)[2] if r[2] == 0x20008050]
+    off = recs[1][3].find(ids[0].bytes_le); p0 = recs[0][0] + 12; p = bytearray(d[p0:p0 + len(recs[0][3])]); p[off:off + 16] = ids[1].bytes_le
+    inner = [i for i in range(56, len(p) - 12) if struct.unpack_from('<I', p, i)[0] == 0x40008000][0]
+    struct.pack_into('<I', p, len(p) - 20, zlib.crc32(bytes(p[56:inner] + p[inner + 28:len(p) - 20])))
+    d[p0:p0 + len(p)] = p; open(f, 'wb').write(d); before = bytes(d)
+    try: write.rename_layer(f, 'B', 'BB')
+    except write.Refused: assert open(f, 'rb').read() == before; return
+    ra = [r for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
+    assert ra[0][3] == rb[0][3]
