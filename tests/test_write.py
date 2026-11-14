@@ -1453,3 +1453,18 @@ def test_names_with_spaces_and_normalization_roundtrip_exactly(new, tmp_path):
     except write.Refused:
         assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']; return
     assert names(f) == [new]
+
+
+def test_reader_polling_during_saves_sees_only_old_or_new_names(tmp_path):
+    """item 158: a viewer process re-reading the file in a loop while three saves happen never sees a partial file (atomic replace)"""
+    import subprocess, sys, time
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = ('import sys,time\nsys.path[:0]=[%r,%r]\nimport rhino3dm as R\nend=time.time()+%d\nseen=set();bad=0\n'
+            'while time.time()<end:\n    m=R.File3dm.Read(%r)\n    if m is None or len(m.Layers)!=1: bad+=1\n    else: seen.add(m.Layers[0].Name)\n'
+            'print(bad, sorted(seen))\n') % (root, os.path.join(root, '.deps'), 25, f)
+    p = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, text=True); time.sleep(1)
+    for a, b in [('brep', 'P1'), ('P1', 'P2'), ('P2', 'P3')]: write.rename_layer(f, a, b)
+    out = p.communicate()[0].strip(); bad, seen = out.split(' ', 1)
+    assert bad == '0', out
+    assert set(eval(seen)) <= {'brep', 'P1', 'P2', 'P3'} and 'P3' in eval(seen) or 'P3' in names(f), out
