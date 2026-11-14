@@ -1731,3 +1731,19 @@ def test_implausible_output_size_refused(tmp_path, monkeypatch):
     with pytest.raises(write.Refused, match='implausible'): write.rename_layer(f, R.File3dm.Read(f).Layers[0].Name, 'NNN')
     monkeypatch.undo()
     assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
+
+
+def test_stalled_library_write_becomes_refusal_and_leaves_original(tmp_path, monkeypatch):
+    """item 200: a native Write that stalls (simulated: sleeps past the limit) turns into Refused within the limit, original intact, no temp left"""
+    import time
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    real = write._guarded_write
+    class Stall:
+        def Write(self, tmp, ver): time.sleep(5); return True
+    monkeypatch.setattr(write, 'write_timeout', lambda p: 1)
+    monkeypatch.setattr(write, '_guarded_write', lambda m, tmp, ver, timeout=120: real(Stall(), tmp, ver, timeout))
+    t = time.time()
+    with pytest.raises(write.Refused, match='timed out'): write.rename_layer(f, 'brep', 'N')
+    assert time.time() - t < 4
+    monkeypatch.undo(); time.sleep(5)   # let the stalled daemon thread finish before checking for leftovers
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
