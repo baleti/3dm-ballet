@@ -1301,3 +1301,13 @@ def test_long_and_odd_file_names(name, tmp_path):
     assert not left, left
     bak = [x for x in os.listdir(tmp_path) if '.bak' in x]
     assert len(bak) == 1 and open(str(tmp_path / bak[0]), 'rb').read() == before
+
+
+def test_partial_backup_copy_leaves_no_truncated_bak(tmp_path, monkeypatch):
+    """items 136, 137: disk fills up halfway through the backup copy: save refused, original identical, no truncated .bak (a half backup would be mistaken for a good one)"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); b = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    def half(src, dst, **k):
+        open(dst, 'wb').write(open(src, 'rb').read()[:len(b) // 2]); raise OSError(28, 'No space left on device')
+    monkeypatch.setattr(shutil, 'copy2', half)
+    with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == b and os.listdir(str(tmp_path)) == ['a.3dm']

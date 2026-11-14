@@ -623,11 +623,17 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
             with open(tmp, 'r+b') as fh: os.fsync(fh.fileno())
         except OSError as e: raise Refused('cannot finalise output, original untouched: %s' % e)
         if backup:
+            made = False
             try:
                 bak = path + '.bak'; k = 0
                 while os.path.lexists(bak): k += 1; bak = '%s.bak.%d' % (path, k)   # never overwrite an earlier backup
-                shutil.copy2(path, bak)
-            except OSError as e: raise Refused('backup failed, original untouched: %s' % e)
+                made = True; shutil.copy2(path, bak)
+                if os.path.getsize(bak) != os.path.getsize(path): raise OSError('backup size mismatch')
+            except OSError as e:
+                try:
+                    if made and os.path.lexists(bak): os.remove(bak)   # never leave a truncated backup (bak was free before the copy)
+                except OSError: pass
+                raise Refused('backup failed, original untouched: %s' % e)
         try: os.replace(tmp, path)
         except OSError as e: raise Refused('replace failed, original untouched: %s' % e)
         return ds
