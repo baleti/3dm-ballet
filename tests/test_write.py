@@ -1481,3 +1481,17 @@ def test_group_of_original_kept_in_setgid_directory(tmp_path):
     write.rename_layer(f, 'brep', 'R')
     assert names(f) == ['R'] and os.stat(f).st_gid == gs[1]
     assert os.stat(f + '.bak').st_gid in (gs[1], gs[0])
+
+
+def test_read_only_filesystem_refused_nothing_created(tmp_path):
+    """item 157: source on a read-only mount (user namespace bind mount, no sudo): refused, bytes unchanged, directory unchanged"""
+    import subprocess, sys, shutil as sh
+    if sys.platform != 'linux' or not sh.which('unshare'): pytest.skip('needs linux unshare')
+    d = tmp_path / 'ro'; d.mkdir(); f = d / 'a.3dm'; sh.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = f.read_bytes()
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    py = ('import sys,os\nsys.path[:0]=[%r,%r]\nfrom tm3dballet import write\n'
+          'try: write.rename_layer(%r,"brep","R"); print("SAVED")\nexcept write.Refused as e: print("REFUSED")\n') % (root, os.path.join(root, '.deps'), str(f))
+    sh_cmd = 'mount --bind "$1" "$1" && mount -o remount,bind,ro "$1" && ! touch "$1/x" 2>/dev/null && exec "$2" -c "$3"'
+    r = subprocess.run(['unshare', '-rm', 'sh', '-c', sh_cmd, 'sh', str(d), sys.executable, py], capture_output=True, text=True)
+    if 'SAVED' not in r.stdout and 'REFUSED' not in r.stdout: pytest.skip('user namespaces unavailable: %s' % r.stderr[:100])
+    assert 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(d) == ['a.3dm']
