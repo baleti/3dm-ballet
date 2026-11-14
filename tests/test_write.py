@@ -1431,3 +1431,15 @@ def test_symlinked_source_target_replaced_link_kept_no_stray_files(tmp_path):
     assert os.path.islink(lf) and os.path.realpath(lf) == os.path.realpath(tf)
     assert names(tf) == ['R'] and os.listdir(l) == ['a.3dm']
     assert sorted(os.listdir(t)) == ['a.3dm', 'a.3dm.bak'] and open(str(t / 'a.3dm.bak'), 'rb').read() == before
+
+
+@pytest.mark.parametrize('dmode', [0o1777, 0o2755, 0o3775], ids=['sticky', 'setgid', 'both'])
+def test_sticky_and_setgid_directories(dmode, tmp_path):
+    """item 154: the save works in a sticky/setgid directory, the new file keeps the original permission bits (no special bits leak), owner unchanged"""
+    if os.name != 'posix': pytest.skip('posix')
+    d = tmp_path / 'd'; d.mkdir(); os.chmod(d, dmode)
+    f = str(d / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); os.chmod(f, 0o640); before = os.stat(f)
+    write.rename_layer(f, 'brep', 'R')
+    st = os.stat(f)
+    assert names(f) == ['R'] and (st.st_mode & 0o7777) == 0o640 and st.st_uid == before.st_uid
+    assert sorted(os.listdir(d)) == ['a.3dm', 'a.3dm.bak']
