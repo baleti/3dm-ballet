@@ -1153,3 +1153,35 @@ def test_source_swapped_by_another_process_during_edit_is_not_overwritten(how, t
         d = open(f, 'rb').read(); orig = open(os.path.join(D, 'V7-v7_my_brep.3dm'), 'rb').read()
         assert d != orig and len(d) in (len(orig), len(orig) + 8) and R.File3dm.Read(f).Layers[0].Name == lay
     assert not [x for x in os.listdir(str(tmp_path)) if x not in ('a.3dm',) and not x.startswith('a.3dm.bak')], os.listdir(str(tmp_path))
+
+
+def test_rename_same_named_layers_under_different_parents_by_full_path(tmp_path):
+    """queue 123: two layers named Sub under A and B: the bare name is ambiguous and refused (file untouched); 'B::Sub' renames only that one, other records byte-identical"""
+    f = str(tmp_path / 'p.3dm'); m = R.File3dm()
+    def add(n, parent=None):
+        l = R.Layer(); l.Name = n
+        if parent is not None: l.ParentLayerId = parent
+        m.Layers.Add(l); return m.Layers[len(m.Layers) - 1].Id
+    a = add('A'); b = add('B'); add('Sub', a); add('Sub', b); assert m.Write(f, 7)
+    b0 = open(f, 'rb').read()
+    with pytest.raises(write.Refused, match='2 times'): write.rename_layer(f, 'Sub', 'Sub2')
+    assert open(f, 'rb').read() == b0
+    write.rename_layer(f, 'B::Sub', 'Sub2')
+    ls = R.File3dm.Read(f).Layers; par = {l.Name + str(i): str(l.ParentLayerId) for i, l in enumerate(ls)}
+    assert [l.Name for l in ls] == ['A', 'B', 'Sub', 'Sub2']
+    assert str(ls[2].ParentLayerId) == str(ls[0].Id) and str(ls[3].ParentLayerId) == str(ls[1].Id)
+    ra = [r for r in write._table_records(b0, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
+    assert [x[3] for x in ra[:3]] == [x[3] for x in rb[:3]]
+    with pytest.raises(write.Refused): write.rename_layer(f, 'A::Nope', 'x')
+
+
+def test_stale_lock_from_killed_save_is_cleared_fresh_lock_is_respected(tmp_path):
+    """queue 124: a lock left by a killed save blocks a new save only while younger than LOCK_STALE_S; once older the save proceeds, result correct, lock released"""
+    import time
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); b = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    lk = f + '.3dmballet.lock'; open(lk, 'w').write('12345')
+    with pytest.raises(write.Refused, match='in progress'): write.rename_layer(f, lay, lay + '_x')
+    assert open(f, 'rb').read() == b and os.path.exists(lk)
+    old = time.time() - write.LOCK_STALE_S - 60; os.utime(lk, (old, old))
+    write.rename_layer(f, lay, lay + '_x')
+    assert R.File3dm.Read(f).Layers[0].Name == lay + '_x' and not os.path.exists(lk)

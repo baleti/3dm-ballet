@@ -636,7 +636,12 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
 
 def rename_layer(path, old, new):
     def edit(m):
-        n = [l for l in m.Layers if l.Name == old]
+        def full(l):
+            byid = {str(x.Id): x for x in m.Layers}; names = [l.Name]; seen = {str(l.Id)}
+            while str(l.ParentLayerId) in byid and str(l.ParentLayerId) not in seen:
+                l = byid[str(l.ParentLayerId)]; seen.add(str(l.Id)); names.append(l.Name)
+            return '::'.join(reversed(names))
+        n = [l for l in m.Layers if l.Name == old] if '::' not in old else [l for l in m.Layers if full(l) == old]   # 'Parent::Child' picks one of several same-named layers
         if len(n) != 1: raise Refused('layer %r found %d times' % (old, len(n)))
         if not isinstance(new, str) or not new.strip() or new != new.strip(): raise Refused('invalid layer name: empty or padded with whitespace')
         if any(ord(c) < 32 or ord(c) == 127 for c in new): raise Refused('invalid layer name: control character')
