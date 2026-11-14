@@ -1693,3 +1693,13 @@ def test_same_size_same_mtime_content_change_during_edit_is_detected(tmp_path):
         os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
     with pytest.raises(write.Refused): write.edit_file(f, edit, lambda ds: ds == ['layers differs'])   # refused by the output checks or by the final source hash
     assert os.stat(f).st_size == st.st_size and sorted(os.listdir(tmp_path)) == ['a.3dm']   # no backup, no temp, the (externally changed) file is left as is
+
+
+def test_restore_picks_numerically_newest_backup_not_lexicographic(tmp_path):
+    """item 194: backups .bak, .bak.2, .bak.10: .bak.10 wins (a string sort would pick .bak.2); the replaced file is kept under the first free backup name"""
+    f = str(tmp_path / 'a.3dm'); src = os.path.join(D, 'V7-v7_my_brep.3dm'); shutil.copy(src, f)
+    ids = {}
+    for suffix, name in (('.bak', 'B0'), ('.bak.2', 'B2'), ('.bak.10', 'B10')):
+        shutil.copy(src, f + suffix); m = R.File3dm.Read(f + suffix); m.Layers[0].Name = name; m.Write(f + suffix, 7)
+    write.restore_backup(f)
+    assert names(f) == ['B10'] and names(f + '.bak.1') == ['brep']   # kept under the first free name
