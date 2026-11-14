@@ -1257,3 +1257,19 @@ def test_two_concurrent_processes_one_wins_other_refused(tmp_path):
     assert not left, left
     for x in os.listdir(tmp_path):
         if '.bak' in x: assert names(str(tmp_path / x)) in (['brep'], [n for n in nm]) or names(str(tmp_path / x))[0].startswith('N')
+
+
+def test_ten_sequential_renames_backups_distinct_and_valid(tmp_path):
+    """item 132: chain of renames; each backup holds the state before its save; final equals source except the layer name"""
+    f = str(tmp_path / 'a.3dm'); src = os.path.join(D, 'V7-v7_my_brep.3dm'); shutil.copy(src, f)
+    seq = ['brep'] + ['L%d' % i for i in range(10)]
+    for a, b in zip(seq, seq[1:]): write.rename_layer(f, a, b)
+    assert names(f) == ['L9']
+    baks = ['a.3dm.bak'] + ['a.3dm.bak.%d' % i for i in range(1, 10)]
+    assert sorted(x for x in os.listdir(tmp_path) if '.bak' in x) == sorted(baks)
+    assert [names(str(tmp_path / x)) for x in baks] == [[n] for n in seq[:-1]]
+    assert len({open(str(tmp_path / x), 'rb').read() for x in baks}) == 10
+    assert open(str(tmp_path / baks[0]), 'rb').read() == open(src, 'rb').read()
+    m0, m1 = R.File3dm.Read(src), R.File3dm.Read(f)
+    s0, s1 = write.snapshot(m0), write.snapshot(m1)
+    assert write.diff(s0, s1) == ['layers differs']
