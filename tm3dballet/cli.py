@@ -40,7 +40,7 @@ def main(argv=None):
     if a[0] == 'rename-layer':
         # rename-layer FILE OLD NEW [--overwrite]: without --overwrite the guarded edit runs on a temp copy only (dry run)
         from . import write
-        if len(a) < 4: print('usage: rename-layer FILE OLD NEW [--overwrite]'); return 2
+        if len(a) < 4: print('usage: rename-layer FILE OLD NEW [--overwrite]\n  OLD is the layer name, or the full path Parent::Child when several layers share a name'); return 2
         f, old, new = a[1], a[2], a[3]; real = '--overwrite' in a
         target = f
         if not real:

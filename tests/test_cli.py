@@ -21,3 +21,19 @@ def test_rename_layer_dry_run_then_overwrite(tmp_path):
     assert cli.main(['rename-layer', f, 'nope', 'zz', '--overwrite']) == 1 and open(f, 'rb').read() == before
     assert cli.main(['rename-layer', f, lay, 'zz', '--overwrite']) == 0
     assert R.File3dm.Read(f).Layers[0].Name == 'zz' and open(f + '.bak', 'rb').read() == before
+
+
+def test_cli_rename_layer_by_full_path_dry_run_and_usage(tmp_path):
+    """queue 125: CLI accepts the Parent::Child form (dry run, source untouched) and its usage line names it"""
+    import shutil, rhino3dm as R
+    f = str(tmp_path / 'p.3dm'); m = R.File3dm()
+    def add(n, parent=None):
+        l = R.Layer(); l.Name = n
+        if parent is not None: l.ParentLayerId = parent
+        m.Layers.Add(l); return m.Layers[len(m.Layers) - 1].Id
+    a = add('A'); b = add('B'); add('Sub', a); add('Sub', b); assert m.Write(f, 7); before = open(f, 'rb').read()
+    cli = os.path.join(ROOT, '3dm-ballet')
+    r = subprocess.run([cli, 'rename-layer', f, 'Sub', 'S2'], capture_output=True, text=True); assert r.returncode == 1 and '2 times' in r.stdout
+    r = subprocess.run([cli, 'rename-layer', f, 'B::Sub', 'S2'], capture_output=True, text=True); assert r.returncode == 0 and 'dry run OK' in r.stdout, r.stdout + r.stderr
+    r = subprocess.run([cli, 'rename-layer', f], capture_output=True, text=True); assert r.returncode == 2 and 'Parent::Child' in r.stdout
+    assert open(f, 'rb').read() == before
