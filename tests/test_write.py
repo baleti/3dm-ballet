@@ -1565,3 +1565,20 @@ def test_hostile_names_refused_with_Refused_and_original_intact(bad, tmp_path):
     f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
     with pytest.raises(write.Refused): write.rename_layer(f, 'brep', bad)
     assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
+
+
+def test_backup_names_taken_by_directory_or_dangling_symlink_are_skipped(tmp_path):
+    """item 170: a.3dm.bak is a directory and a.3dm.bak.1 a dangling symlink: the backup goes to .bak.2, nothing is written through the symlink"""
+    if os.name != 'posix': pytest.skip('posix')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); orig = open(f, 'rb').read()
+    os.mkdir(f + '.bak'); target = str(tmp_path / 'elsewhere'); os.symlink(target, f + '.bak.1')
+    write.rename_layer(f, 'brep', 'NEW')
+    assert open(f + '.bak.2', 'rb').read() == orig and os.path.isdir(f + '.bak') and not os.path.exists(target) and names(f) == ['NEW']
+
+
+def test_thirty_saves_every_backup_valid_and_distinct_names(tmp_path):
+    """item 171: backups accumulate one per save (no pruning, documented); each is a valid file holding the layer name of its time"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); cur = 'brep'
+    for i in range(30): write.rename_layer(f, cur, 'N%d' % i); cur = 'N%d' % i
+    baks = sorted(n for n in os.listdir(tmp_path) if '.bak' in n); assert len(baks) == 30
+    seen = sorted(names(str(tmp_path / n))[0] for n in baks); assert seen == sorted(['brep'] + ['N%d' % i for i in range(29)])
