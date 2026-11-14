@@ -64,15 +64,30 @@ def mutate_chunk(b, rnd):
     else: struct.pack_into('<I', b, o, struct.unpack_from('<I', b, o)[0] ^ (1 << rnd.randrange(32)))
     return b
 
-def run(n=40, seed=1):
+MODES = ['flip', 'trunc', 'zero', 'chunk', 'chunk']   # LAYER_MODES adds flips confined to the layer table (0x10000011)
+
+def mutate_layer_table(b, rnd):
+    o = 32
+    while o + 12 <= len(b):
+        t, l = struct.unpack_from('<Iq', b, o)
+        if l < 0 or o + 12 + l > len(b): break
+        if t == 0x10000011 and l:
+            for _ in range(rnd.randint(1, 4)): b[o + 12 + rnd.randrange(l)] ^= 1 << rnd.randrange(8)
+            return b
+        o += 12 + l
+    return b
+
+def run(n=40, seed=1, modes=None):
+    MODES_ = modes or MODES
     rnd = random.Random(seed); files = sorted(glob.glob(os.path.join(HERE, 'data', 'V[5-8]*.3dm')))
     res = {}
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([os.path.join(HERE, '..'), os.path.join(HERE, '..', '.deps')]))
     for i in range(n):
         src = rnd.choice(files); b = bytearray(open(src, 'rb').read())
-        mode = rnd.choice(['flip', 'trunc', 'zero', 'chunk', 'chunk'])
+        mode = rnd.choice(MODES_)
         if mode == 'flip':
             for _ in range(rnd.randint(1, 8)): b[rnd.randrange(len(b))] ^= 1 << rnd.randrange(8)
+        elif mode == 'layer': b = mutate_layer_table(b, rnd)
         elif mode == 'chunk': b = mutate_chunk(b, rnd)
         elif mode == 'trunc': b = b[:rnd.randrange(32, len(b))]
         else:
