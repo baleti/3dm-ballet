@@ -72,3 +72,19 @@ def test_parent_rename_children_untouched_and_paths_follow(tmp_path):
     assert paths == ['Other', 'Roof', 'Roof::Mid', 'Roof::Mid::Leaf']
     assert m2.Objects[0].Attributes.LayerIndex == 2
     write.rename_layer(f, 'Roof::Mid::Leaf', 'Tip'); assert 'Roof::Mid::Tip' in [p['path'] for p in reader._layer_paths(R.File3dm.Read(f))]
+
+
+def test_layer_user_strings_and_material_survive_rename(tmp_path):
+    """item 148: per-layer user strings (unicode too) and render material index survive a rename of that layer and of a sibling"""
+    m = R.File3dm(); mat = R.Material(); mat.Name = 'Red'; m.Materials.Add(mat)
+    for n in ('A', 'B'):
+        l = R.Layer(); l.Name = n; l.RenderMaterialIndex = 0
+        l.SetUserString('k_' + n, 'vé中_' + n); l.SetUserString('shared', 'x' * 500); m.Layers.Add(l)
+    f = str(tmp_path / 'a.3dm'); assert m.Write(f, 7)
+    def snap(p):
+        mm = R.File3dm.Read(p); return [(l.Name, l.RenderMaterialIndex, sorted(l.GetUserStrings())) for l in mm.Layers], len(mm.Materials)
+    s0 = snap(f); assert s0[0][0][2], 'fixture has no user strings'
+    write.rename_layer(f, 'A', 'A2'); s1 = snap(f)
+    assert s1[0][0][0] == 'A2' and s1[0][0][1:] == s0[0][0][1:] and s1[0][1] == s0[0][1] and s1[1] == s0[1]
+    write.rename_layer(f, 'B', 'B2'); s2 = snap(f)
+    assert [x[1:] for x in s2[0]] == [x[1:] for x in s0[0]] and s2[1] == s0[1]
