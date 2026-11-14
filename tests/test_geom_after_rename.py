@@ -50,3 +50,25 @@ def test_layer_fields_and_object_layer_index_unchanged_by_rename(f, tmp_path):
     m2 = R.File3dm.Read(p)
     assert [lay_fields(l) for l in m2.Layers] == b
     assert [o.Attributes.LayerIndex for o in m2.Objects] == ob
+
+
+def test_parent_rename_children_untouched_and_paths_follow(tmp_path):
+    """item 146: renaming a parent keeps the child records (parent id link) identical; only the parent's name and the children's full paths change"""
+    import uuid
+    from tm3dballet import reader
+    m = R.File3dm(); ids = {}
+    for n, par in [('Top', None), ('Mid', 'Top'), ('Leaf', 'Mid'), ('Other', None)]:
+        l = R.Layer(); l.Name = n; l.Id = uuid.uuid4()
+        if par: l.ParentLayerId = ids[par]
+        m.Layers.Add(l); ids[n] = l.Id
+    a = R.ObjectAttributes(); a.LayerIndex = 2; m.Objects.AddPoint(R.Point3d(1, 2, 3), a)
+    f = str(tmp_path / 'a.3dm'); assert m.Write(f, 7)
+    r0 = {l.Name: l.Encode() for l in R.File3dm.Read(f).Layers}
+    write.rename_layer(f, 'Top', 'Roof')
+    m2 = R.File3dm.Read(f); r1 = {l.Name: l.Encode() for l in m2.Layers}
+    assert sorted(r1) == ['Leaf', 'Mid', 'Other', 'Roof']
+    for n in ('Mid', 'Leaf', 'Other'): assert r1[n] == r0[n], n
+    paths = sorted(p['path'] for p in reader._layer_paths(m2))
+    assert paths == ['Other', 'Roof', 'Roof::Mid', 'Roof::Mid::Leaf']
+    assert m2.Objects[0].Attributes.LayerIndex == 2
+    write.rename_layer(f, 'Roof::Mid::Leaf', 'Tip'); assert 'Roof::Mid::Tip' in [p['path'] for p in reader._layer_paths(R.File3dm.Read(f))]
