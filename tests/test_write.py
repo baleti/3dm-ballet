@@ -1747,3 +1747,14 @@ def test_stalled_library_write_becomes_refusal_and_leaves_original(tmp_path, mon
     assert time.time() - t < 4
     monkeypatch.undo(); time.sleep(5)   # let the stalled daemon thread finish before checking for leftovers
     assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
+
+
+@pytest.mark.parametrize('content', [os.urandom(64), b'\xff\xfe\x00\x01' * 10, b'9' * 100000, b'-5', b'0', b'1', b'12 34', b'\x00' * 10, b'1e9', b' 123456789012345678901234567890 '])
+def test_odd_lock_contents_never_crash_and_never_damage(content, tmp_path):
+    """item 208: a lock file with random/binary/huge/negative/pid-1 content: the save is refused (lock held) or the lock cleared, never an unhandled exception; the file is never damaged"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); lk = f + '.3dmballet.lock'
+    open(lk, 'wb').write(content)
+    try: write.rename_layer(f, 'brep', 'N'); saved = True
+    except write.Refused: saved = False
+    assert (names(f) == ['N']) == saved and (saved or open(f, 'rb').read() == before)
+    assert not saved or not os.path.exists(lk)

@@ -549,7 +549,7 @@ def _owner_dead(lk):
         if pid <= 0: return False
         os.kill(pid, 0); return False
     except ProcessLookupError: return True
-    except (OSError, ValueError): return False
+    except (OSError, ValueError, OverflowError): return False
 
 def _lock(path):
     """exclusive lock file next to the target (portable, O_EXCL); a lock older than LOCK_STALE_S is treated as left by a killed save"""
