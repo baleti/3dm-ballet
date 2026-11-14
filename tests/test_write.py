@@ -1337,3 +1337,22 @@ def test_truncated_source_refused_nothing_left(n, tmp_path):
     f = str(tmp_path / 'a.3dm'); open(f, 'wb').write(full[:k])
     with pytest.raises(write.Refused): write.rename_layer(f, 'brep', 'R')
     assert open(f, 'rb').read() == full[:k] and os.listdir(tmp_path) == ['a.3dm']
+
+
+def test_directory_fsynced_after_replace_and_failure_is_harmless(tmp_path, monkeypatch):
+    """item 140: the directory is fsynced after os.replace (posix); a failing directory fsync never fails or damages the save"""
+    if os.name != 'posix': pytest.skip('posix')
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    calls = []; real = os.fsync; rep = os.replace; order = []
+    monkeypatch.setattr(os, 'replace', lambda a, b: (order.append('replace'), rep(a, b))[1])
+    def fs(fd):
+        if os.path.isdir('/proc/self/fd/%d' % fd): order.append('dirfsync'); calls.append(fd)
+        return real(fd)
+    monkeypatch.setattr(os, 'fsync', fs)
+    write.rename_layer(f, 'brep', 'R1')
+    assert calls and order.index('dirfsync') > order.index('replace')
+    def bad(fd):
+        if os.path.isdir('/proc/self/fd/%d' % fd): raise OSError(5, 'EIO')
+        return real(fd)
+    monkeypatch.setattr(os, 'fsync', bad)
+    write.rename_layer(f, 'R1', 'R2'); assert names(f) == ['R2']

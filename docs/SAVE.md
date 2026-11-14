@@ -54,3 +54,5 @@ the backup copy removes the partial backup and refuses the save.
 Restore: `3dm-ballet restore-backup FILE` copies the newest `FILE.bak*` (highest N) back over FILE through a temp file,
 after the backup passes the same probe and structure checks as a source; the replaced file is kept as a new backup so a
 restore can be undone. Exit 1 and no change when there is no backup or it is truncated/damaged.
+
+Durability: after os.replace the containing directory is fsynced on posix (best effort, failure ignored; no-op on Windows).

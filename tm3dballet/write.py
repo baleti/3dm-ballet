@@ -9,6 +9,16 @@ WRITE_TIMEOUT = 120
 
 class Refused(Exception): pass
 
+def fsync_dir(d):
+    """make a rename/replace durable: fsync the directory (posix only; Windows cannot open directories, there it is a no-op). Best effort, never raises."""
+    if os.name != 'posix': return False
+    try:
+        fd = os.open(d, os.O_RDONLY)
+        try: os.fsync(fd)
+        finally: os.close(fd)
+        return True
+    except OSError: return False
+
 def write_timeout(path):
     """library write step limit: 120 s, or 15 s per MB of source for big files (measured 6.5 s/MB on a loaded host), capped at one hour"""
     try: return min(3600, max(WRITE_TIMEOUT, 15 * os.path.getsize(path) / 2**20))
@@ -636,6 +646,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
                 raise Refused('backup failed, original untouched: %s' % e)
         try: os.replace(tmp, path)
         except OSError as e: raise Refused('replace failed, original untouched: %s' % e)
+        fsync_dir(d)
         return ds
     finally:
         if os.path.exists(tmp): os.remove(tmp)
@@ -696,6 +707,7 @@ def restore_backup(path):
                     raise Refused('cannot keep the current file, nothing changed: %s' % e)
             try: os.replace(tmp, path)
             except OSError as e: raise Refused('replace failed, file untouched: %s' % e)
+            fsync_dir(d)
             return os.path.basename(bak), os.path.basename(keep) if keep else None
         finally:
             if os.path.exists(tmp): os.remove(tmp)
