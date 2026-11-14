@@ -150,3 +150,12 @@ def test_stopped_saving_process_blocks_second_save_then_resumes_valid(tmp_path):
     finally: p.send_signal(signal.SIGCONT); p.wait()
     import rhino3dm as R
     assert p.returncode == 0 and [l.Name for l in R.File3dm.Read(str(f)).Layers] == ['Q'] and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
+
+
+def test_cli_usage_and_missing_file_exit_codes_without_traceback(tmp_path):
+    """item 207: usage errors give 2, refusals and unreadable or missing files 1, never a Python traceback (info and the dry-run rename used to traceback)"""
+    exe = os.path.join(ROOT, '3dm-ballet'); miss = str(tmp_path / 'none.3dm')
+    for args, rc in ((['info'], 2), (['convert'], 2), (['rename-layer'], 2), (['restore-backup'], 2), (['info', miss], 1), (['rename-layer', miss, 'a', 'b'], 1),
+                     (['rename-layer', miss, 'a', 'b', '--overwrite'], 1), (['restore-backup', miss], 1), (['bogus-cmd'], 1)):
+        r = subprocess.run([exe] + args, capture_output=True, text=True)
+        assert r.returncode == rc and 'Traceback' not in r.stdout + r.stderr, (args, r.returncode, r.stdout, r.stderr)

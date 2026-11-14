@@ -1,6 +1,6 @@
 """3dm-ballet FILE.3dm [--no-browser] | info FILE | convert FILE [OUT.glb]"""
 import json, os, sys, tempfile, webbrowser
-from . import reader
+from . import reader, probe
 
 def find_three():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,8 +31,13 @@ def serve(glbpath, nobrowser=False):
     return 0
 
 def main(argv=None):
+    try: return _main(argv)
+    except (OSError, probe.Unreadable) as e: print('ERROR: %s' % e); return 1
+
+def _main(argv=None):
     a = list(sys.argv[1:] if argv is None else argv)
     if not a or a[0] in ('-h', '--help'): print(__doc__); return 0
+    if a[0] in ('info', 'convert') and len(a) < 2: print('usage: %s FILE.3dm' % a[0]); return 2
     if a[0] == 'info': print(json.dumps(reader.info(a[1]), indent=1)); return 0
     if a[0] == 'convert':
         out = a[2] if len(a) > 2 else os.path.splitext(a[1])[0] + '.glb'
