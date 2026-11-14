@@ -68,3 +68,5 @@ Durability: after os.replace the containing directory is fsynced on posix (best 
 - Permissions kept, mtime policy, truncated sources at 11 lengths refused, `restore-backup`, directory fsync.
 - All four permanent fuzz/hang regression files, case-only renames, a 2000-layer synthetic file (1 of 2000 layer
   records changes), every non-layer table identical after rename on 52 samples.
+
+Group: the saved file gets the original file's group back (chown to the same gid); when that is not possible (user not a member) the save is refused instead of silently changing the group.

@@ -9,6 +9,15 @@ WRITE_TIMEOUT = 120
 
 class Refused(Exception): pass
 
+def keep_group(src, tmp):
+    """the new file is created with the group of the directory (setgid) or of the user; give it the original group back, or fail loudly
+    (a silent group change can lock collaborators out of a shared file)"""
+    if os.name != 'posix': return
+    g = os.stat(src).st_gid
+    if os.stat(tmp).st_gid != g:
+        try: os.chown(tmp, -1, g)
+        except OSError as e: raise OSError('cannot keep the file group %d: %s' % (g, e))
+
 def fsync_dir(d):
     """make a rename/replace durable: fsync the directory (posix only; Windows cannot open directories, there it is a no-op). Best effort, never raises."""
     if os.name != 'posix': return False
@@ -630,6 +639,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
             raise Refused('source changed during edit; refusing to overwrite')
         try:
             shutil.copymode(path, tmp)   # mkstemp creates 0600; keep the original permissions
+            keep_group(path, tmp)
             with open(tmp, 'r+b') as fh: os.fsync(fh.fileno())
         except OSError as e: raise Refused('cannot finalise output, original untouched: %s' % e)
         if backup:
@@ -694,7 +704,7 @@ def restore_backup(path):
             try:
                 shutil.copyfile(bak, tmp)
                 if os.path.getsize(tmp) != os.path.getsize(bak): raise OSError('size mismatch')
-                if os.path.exists(path): shutil.copymode(path, tmp)
+                if os.path.exists(path): shutil.copymode(path, tmp); keep_group(path, tmp)
                 with open(tmp, 'r+b') as fh: os.fsync(fh.fileno())
                 if open(tmp, 'rb').read() != open(bak, 'rb').read(): raise OSError('copy differs')
             except OSError as e: raise Refused('cannot prepare restore, file untouched: %s' % e)

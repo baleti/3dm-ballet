@@ -1468,3 +1468,16 @@ def test_reader_polling_during_saves_sees_only_old_or_new_names(tmp_path):
     out = p.communicate()[0].strip(); bad, seen = out.split(' ', 1)
     assert bad == '0', out
     assert set(eval(seen)) <= {'brep', 'P1', 'P2', 'P3'} and 'P3' in eval(seen) or 'P3' in names(f), out
+
+
+def test_group_of_original_kept_in_setgid_directory(tmp_path):
+    """item 156: file group adm in a setgid directory of group kvm (or any two groups of this user): the saved file keeps the original group"""
+    if os.name != 'posix': pytest.skip('posix')
+    gs = [g for g in os.getgroups() if g != os.getgid()]
+    if len(gs) < 2: pytest.skip('need two supplementary groups')
+    d = tmp_path / 'd'; d.mkdir(); os.chown(d, -1, gs[0]); os.chmod(d, 0o2775)
+    f = str(d / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); os.chown(f, -1, gs[1])
+    assert os.stat(f).st_gid == gs[1]
+    write.rename_layer(f, 'brep', 'R')
+    assert names(f) == ['R'] and os.stat(f).st_gid == gs[1]
+    assert os.stat(f + '.bak').st_gid in (gs[1], gs[0])
