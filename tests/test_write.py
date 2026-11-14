@@ -1495,3 +1495,4 @@ def test_read_only_filesystem_refused_nothing_created(tmp_path):
     r = subprocess.run(['unshare', '-rm', 'sh', '-c', sh_cmd, 'sh', str(d), sys.executable, py], capture_output=True, text=True)
     if 'SAVED' not in r.stdout and 'REFUSED' not in r.stdout: pytest.skip('user namespaces unavailable: %s' % r.stderr[:100])
     assert 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(d) == ['a.3dm']
+
