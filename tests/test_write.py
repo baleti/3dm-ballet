@@ -1060,3 +1060,21 @@ def test_rename_colliding_or_padded_name_refused_bytes_unchanged(new, tmp_path):
     assert m.Write(f, 7); b = open(f, 'rb').read()
     with pytest.raises(write.Refused): write.rename_layer(f, 'Beta', new)
     assert open(f, 'rb').read() == b and os.listdir(str(tmp_path)) == ['c.3dm']
+
+
+@pytest.mark.parametrize('target', ['os.replace', 'os.fsync', 'shutil.copy2', 'shutil.copymode'])
+@pytest.mark.parametrize('exc', [OSError(28, 'No space left on device'), RuntimeError('boom')])
+def test_failure_injected_at_each_save_step_leaves_original_and_no_tmp(target, exc, tmp_path, monkeypatch):
+    """queue 117: an OSError (disk full) or an unexpected exception at replace / fsync / backup copy / permission copy: the original is byte-identical,
+    no temp file, lock or half-written .bak remains (a .bak made before a failed replace is a complete copy)"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); b = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    mod, fn = target.split('.'); obj = {'os': os, 'shutil': shutil}[mod]; real = getattr(obj, fn)
+    def boom(*a, **k): raise exc
+    monkeypatch.setattr(obj, fn, boom)
+    with pytest.raises((write.Refused, OSError, RuntimeError)): write.rename_layer(f, lay, lay + '_x')
+    monkeypatch.setattr(obj, fn, real)
+    assert open(f, 'rb').read() == b
+    left = sorted(os.listdir(str(tmp_path)))
+    assert all(x == 'a.3dm' or x.startswith('a.3dm.bak') for x in left), left
+    for x in left:
+        if x.startswith('a.3dm.bak'): assert open(str(tmp_path / x), 'rb').read() == b
