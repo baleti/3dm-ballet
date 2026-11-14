@@ -131,3 +131,22 @@ def test_file_size_limit_during_save_refused_original_intact(tmp_path):
     f = tmp_path / 'a.3dm'; shutil.copy(os.path.join(ROOT, 'tests', 'data', 'V7-v7_my_brep.3dm'), f); before = f.read_bytes()
     r = subprocess.run(['sh', '-c', 'ulimit -f 8; exec "$0" rename-layer "$1" brep NEWNAME --overwrite', os.path.join(ROOT, '3dm-ballet'), str(f)], capture_output=True, text=True)
     assert r.returncode == 1 and 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(tmp_path) == ['a.3dm'], r.stdout + r.stderr
+
+
+def test_stopped_saving_process_blocks_second_save_then_resumes_valid(tmp_path):
+    """item 184: SIGSTOP a save once it holds the lock: a second save is refused, original identical; after SIGCONT the file is the valid renamed one"""
+    if os.name != 'posix': import pytest; pytest.skip('posix')
+    import shutil, signal, time
+    sys.path.insert(0, ROOT)
+    f = tmp_path / 'a.3dm'; shutil.copy(os.path.join(ROOT, 'tests', 'data', 'V7-v7_my_brep.3dm'), f); before = f.read_bytes(); lk = str(f) + '.3dmballet.lock'
+    p = subprocess.Popen([os.path.join(ROOT, '3dm-ballet'), 'rename-layer', str(f), 'brep', 'Q', '--overwrite'], stdout=subprocess.PIPE)
+    t0 = time.time()
+    while not os.path.exists(lk) and time.time() - t0 < 20: time.sleep(0.005)
+    p.send_signal(signal.SIGSTOP)
+    try:
+        assert os.path.exists(lk) and f.read_bytes() == before
+        q = subprocess.run([os.path.join(ROOT, '3dm-ballet'), 'rename-layer', str(f), 'brep', 'Q2', '--overwrite'], capture_output=True, text=True)
+        assert q.returncode == 1 and 'in progress' in q.stdout and f.read_bytes() == before
+    finally: p.send_signal(signal.SIGCONT); p.wait()
+    import rhino3dm as R
+    assert p.returncode == 0 and [l.Name for l in R.File3dm.Read(str(f)).Layers] == ['Q'] and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
