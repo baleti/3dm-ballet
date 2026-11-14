@@ -88,3 +88,18 @@ def test_layer_user_strings_and_material_survive_rename(tmp_path):
     assert s1[0][0][0] == 'A2' and s1[0][0][1:] == s0[0][0][1:] and s1[0][1] == s0[0][1] and s1[1] == s0[1]
     write.rename_layer(f, 'B', 'B2'); s2 = snap(f)
     assert [x[1:] for x in s2[0]] == [x[1:] for x in s0[0]] and s2[1] == s0[1]
+
+
+def test_many_objects_identical_after_rename(tmp_path):
+    """item 151: 3000 points and lines: per-object fingerprints (type, bbox, counts, name) unchanged by a rename. (152: rhino3dm cannot author
+    embedded bitmaps; real bitmap/render tables are covered byte-for-byte by the table sweeps on the public samples.)"""
+    m = R.File3dm(); L = R.Layer(); L.Name = 'A'; m.Layers.Add(L)
+    for i in range(3000):
+        a = R.ObjectAttributes(); a.LayerIndex = 0; a.Name = 'o%d' % i
+        if i % 2: m.Objects.AddPoint(R.Point3d(i, i * .5, -i), a)
+        else: m.Objects.AddLine(R.Point3d(i, 0, 0), R.Point3d(i, 1, 2), a)
+    f = str(tmp_path / 'a.3dm'); assert m.Write(f, 7)
+    key = lambda mm: sorted(map(repr, (desc(o) + (o.Attributes.Name,) for o in mm.Objects)))
+    d0 = key(R.File3dm.Read(f)); write.rename_layer(f, 'A', 'B')
+    m1 = R.File3dm.Read(f)
+    assert len(m1.Objects) == 3000 and key(m1) == d0 and [l.Name for l in m1.Layers] == ['B']
