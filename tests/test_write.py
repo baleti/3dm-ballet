@@ -1215,3 +1215,27 @@ def test_backup_name_never_clobbers_sibling_files(tmp_path):
     for n, c in sib.items(): assert (tmp_path / n).read_bytes() == c
     assert (tmp_path / 'a.3dm.bak.2').read_bytes() == src
     assert sorted(os.listdir(tmp_path)) == sorted(list(sib) + ['a.3dm', 'a.3dm.bak.2'])
+
+
+@pytest.mark.parametrize('f', FILES, ids=os.path.basename)
+def test_every_table_except_layers_identical_after_rename(f, tmp_path):
+    """item 118: all top-level tables (0x10000010..0x10000030) other than the layer table (0x10000011... plus its parent
+    index effects) keep source record bytes; only the layer table may differ, and only in the renamed record"""
+    m = R.File3dm.Read(f)
+    if m is None or write.gate(m) or m.ArchiveVersion < 50: pytest.skip('n/a')
+    g = str(tmp_path / 'a.3dm'); shutil.copy(f, g); lay = m.Layers[0].Name
+    codes = [c for c in range(0x10000010, 0x10000031)]
+    s0 = {c: _tbl(g, c) for c in codes}
+    try: write.rename_layer(g, lay, lay + '_x')
+    except write.Refused: pytest.skip('refused (also safe)')
+    bad = []
+    for c in codes:
+        a, b = s0[c], _tbl(g, c)
+        if a == b: continue
+        if a is None or b is None: bad.append((hex(c), 'presence'))
+        elif c == 0x10000014:   # properties: version marker and revision history may change by design (ALLOWED_RECORD_DIFFS)
+            if len(b) < len(a) or len(b) > len(a) + 1: bad.append((hex(c), 'properties count'))   # library may ADD a revision history record, never drop one
+        elif c == 0x10000011:   # layer table: same record count, at most one record changed
+            if len(a) != len(b) or sum(x != y for x, y in zip(a, b)) > 1: bad.append((hex(c), 'layer table'))
+        else: bad.append((hex(c), 'bytes'))
+    assert not bad, bad
