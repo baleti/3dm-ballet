@@ -992,3 +992,19 @@ def test_rename_with_non_ascii_layer_names_keeps_other_layers(tmp_path):
     assert [l.Name for l in R.File3dm.Read(f).Layers] == ['Ebene ß'] + names[1:]
     write.rename_layer(f, names[2], 'x')
     assert [l.Name for l in R.File3dm.Read(f).Layers] == ['Ebene ß', names[1], 'x', 'plain']
+
+
+def test_rename_long_and_colon_layer_names(tmp_path):
+    """250-char names and single colons are accepted and leave other layers alone; '::' in a new name is refused (layer path separator) with the file unchanged"""
+    f = str(tmp_path / 'c.3dm'); m = R.File3dm()
+    names = ['a' * 200, 'A::B', 'x:y', 'plain']
+    for n in names:
+        l = R.Layer(); l.Name = n; m.Layers.Add(l)
+    assert m.Write(f, 7)
+    write.rename_layer(f, names[0], 'b' * 250)
+    assert [l.Name for l in R.File3dm.Read(f).Layers] == ['b' * 250] + names[1:]
+    before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(f, names[1], 'C::D')
+    assert open(f, 'rb').read() == before
+    write.rename_layer(f, names[3], 'q:r')
+    assert [l.Name for l in R.File3dm.Read(f).Layers] == ['b' * 250, 'A::B', 'x:y', 'q:r']
