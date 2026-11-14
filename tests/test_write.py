@@ -1031,3 +1031,21 @@ def test_source_with_gaps_in_layer_indices_keeps_other_records(tmp_path):
     ra = [r for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
     assert ra[1][3] == rb[1][3] and ra[2][3] == rb[2][3]
     assert [l.Name for l in R.File3dm.Read(f).Layers] == ['AA', 'B', 'C']
+
+
+def test_unedited_table_chunks_byte_identical_after_rename_on_all_samples(tmp_path):
+    """queue 110: on every public sample that saves, each top-level chunk of the tables no edit touches (materials, bitmaps, linetypes, ...) is byte-identical after a rename (properties table excluded: library version marker)"""
+    n = 0
+    for src in sorted(glob.glob(os.path.join(os.path.dirname(__file__), 'data*', '*.3dm'))):
+        f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); b = open(f, 'rb').read(); nm = R.File3dm.Read(f).Layers[0].Name
+        try: write.rename_layer(f, nm, nm + '_x')
+        except write.Refused: continue
+        finally:
+            for x in glob.glob(f + '.*'): os.remove(x)
+        a = open(f, 'rb').read()
+        for t in write.UNEDITED_TABLES:
+            if t == 0x10000014: continue
+            ob, oa = write._top_chunks(b, t), write._top_chunks(a, t)
+            if ob is None or oa is None: continue
+            assert [b[o:o + l] for o, l in ob] == [a[o:o + l] for o, l in oa], (os.path.basename(src), hex(t)); n += 1
+    assert n >= 300
