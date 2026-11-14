@@ -1715,3 +1715,19 @@ def test_installed_mismatch_without_backup_reports_clearly(tmp_path, monkeypatch
     monkeypatch.setattr(os, 'replace', evil)
     def edit(m): m.Layers[0].Name = 'N'
     with pytest.raises(write.Refused, match='no backup to restore'): write.edit_file(f, edit, lambda ds: ds == ['layers differs'], backup=False)
+
+
+def test_implausible_output_size_refused(tmp_path, monkeypatch):
+    """item 201: a layer-only edit whose output is less than half the source size is refused (simulated by truncating the temp file after the library wrote it)"""
+    big = None
+    for n in ('V7-v7_my_mesh.3dm', 'V7-v7_my_brep.3dm'):
+        p = os.path.join(D, n)
+        if os.path.exists(p) and os.path.getsize(p) > 4096: big = p; break
+    f = str(tmp_path / 'a.3dm'); shutil.copy(big, f); before = open(f, 'rb').read()
+    real = write.record_changes   # runs right before the size guard, after every restore step
+    def shrink(src, tmp, *a, **k):
+        r = real(src, tmp, *a, **k); os.truncate(tmp, os.path.getsize(src) // 3); return r
+    monkeypatch.setattr(write, 'record_changes', shrink)
+    with pytest.raises(write.Refused, match='implausible'): write.rename_layer(f, R.File3dm.Read(f).Layers[0].Name, 'NNN')
+    monkeypatch.undo()
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']

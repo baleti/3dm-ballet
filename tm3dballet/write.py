@@ -623,6 +623,8 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not allow_objects:
             rc = record_changes(path, tmp)
             if rc: raise Refused('save re-encoded or dropped records of tables no edit touches: %s' % ['%x/%x' % (a, b & 0xffffffff) for a, b in rc[:4]])
+        if not allow_objects and st0.st_size > 4096 and not (0.5 <= os.path.getsize(tmp) / st0.st_size <= 2.0):
+            raise Refused('output size %d is implausible for a layer-only edit of a %d byte file' % (os.path.getsize(tmp), st0.st_size))
         tmp_sha = hashlib.sha256(open(tmp, 'rb').read()).hexdigest()   # what the gate below judges; re-checked right before the replace
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
