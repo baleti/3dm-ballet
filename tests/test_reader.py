@@ -64,3 +64,18 @@ def test_dimension_display_lines_drawn(tmp_path):
     n = int.from_bytes(b[12:16], 'little'); j = json.loads(b[20:20 + n])
     cnt = sum(j['accessors'][p['indices']]['count'] for me in j['meshes'] for p in me['primitives'] if p.get('mode') == 1 and 'indices' in p)
     assert cnt >= 2 * (6 * 3 + 12)
+
+
+def test_info_lists_layer_paths_and_ids(tmp_path):
+    """queue 126: info carries Parent::Child paths and ids next to the bare names; same-named layers become distinguishable"""
+    import rhino3dm as R
+    f = str(tmp_path / 'p.3dm'); m = R.File3dm()
+    def add(n, parent=None):
+        l = R.Layer(); l.Name = n
+        if parent is not None: l.ParentLayerId = parent
+        m.Layers.Add(l); return m.Layers[len(m.Layers) - 1].Id
+    a = add('A'); b = add('B'); add('Sub', a); add('Sub', b); assert m.Write(f, 7)
+    from tm3dballet import reader
+    i = reader.info(f)
+    assert i['layers'] == ['A', 'B', 'Sub', 'Sub'] and [x['path'] for x in i['layer_paths']] == ['A', 'B', 'A::Sub', 'B::Sub']
+    assert len({x['id'] for x in i['layer_paths']}) == 4

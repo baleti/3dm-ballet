@@ -18,11 +18,21 @@ def unit_scale(m):
     n = str(m.Settings.ModelUnitSystem).split('.')[-1]
     return _UNITS.get(n, 1.0), n
 
+def _layer_paths(m):
+    """[{path, id}] with Parent::Child full paths (the form `rename-layer` accepts when names repeat); cycles cut"""
+    byid = {str(l.Id): l for l in m.Layers}; res = []
+    for l in m.Layers:
+        names = [l.Name]; seen = {str(l.Id)}; p = l
+        while str(p.ParentLayerId) in byid and str(p.ParentLayerId) not in seen:
+            p = byid[str(p.ParentLayerId)]; seen.add(str(p.Id)); names.append(p.Name)
+        res.append({'path': '::'.join(reversed(names)), 'id': str(l.Id)})
+    return res
+
 def info(path):
     m = load(path); sc, un = unit_scale(m)
     types = collections.Counter(str(o.Geometry.ObjectType).split('.')[-1] if o.Geometry is not None else 'Unknown' for o in m.Objects)
     return {'file': path, 'archive_version': m.ArchiveVersion, 'application': m.ApplicationName, 'units': un, 'objects': len(m.Objects),
-            'types': dict(types), 'layers': [l.Name for l in m.Layers], 'materials': len(m.Materials), 'groups': len(m.Groups),
+            'types': dict(types), 'layers': [l.Name for l in m.Layers], 'layer_paths': _layer_paths(m), 'materials': len(m.Materials), 'groups': len(m.Groups),
             'instance_definitions': len(m.InstanceDefinitions), 'views': len(m.Views), 'named_views': len(m.NamedViews),
             'bitmaps': len(m.Bitmaps), 'embedded_files': len(m.EmbeddedFiles), 'linetypes': len(m.Linetypes), 'dimstyles': len(m.DimStyles)}
 
