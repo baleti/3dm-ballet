@@ -1,4 +1,4 @@
-import glob, os, shutil, pytest
+import tempfile, glob, os, shutil, pytest
 import rhino3dm as R
 from tm3dballet import write
 D = os.path.join(os.path.dirname(__file__), 'data')
@@ -1410,3 +1410,24 @@ def test_2000_layers_rename_one_others_identical_and_fast(tmp_path):
     diff = [i for i, (a, b) in enumerate(zip(recs0, [l.Encode() for l in m1.Layers])) if a != b]
     assert len(diff) == 1 and m1.Layers[diff[0]].Name == 'Renamed', diff
     assert len(m1.Objects) == 30
+
+
+def test_unwritable_tmpdir_does_not_matter_tmp_is_next_to_source(tmp_path, monkeypatch):
+    """item 153: temp file lives beside the source (same filesystem, atomic replace) so a broken TMPDIR changes nothing"""
+    bad = tmp_path / 'nope'; monkeypatch.setenv('TMPDIR', str(bad)); monkeypatch.setattr(tempfile, 'tempdir', None)
+    d = tmp_path / 'w'; d.mkdir(); f = str(d / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    write.rename_layer(f, 'brep', 'R'); assert names(f) == ['R'] and not bad.exists()
+
+
+def test_symlinked_source_target_replaced_link_kept_no_stray_files(tmp_path):
+    """item 155: save through a symlink in another directory: the link stays a link to the same target, the target holds the new data, the link directory gets no files"""
+    if os.name != 'posix': pytest.skip('posix symlinks')
+    t = tmp_path / 'real'; t.mkdir(); l = tmp_path / 'links'; l.mkdir()
+    tf = str(t / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), tf); lf = str(l / 'a.3dm'); os.symlink(tf, lf)
+    before = open(tf, 'rb').read()
+    try: write.rename_layer(lf, 'brep', 'R')
+    except write.Refused:
+        assert os.path.islink(lf) and open(tf, 'rb').read() == before and os.listdir(t) == ['a.3dm'] and os.listdir(l) == ['a.3dm']; return
+    assert os.path.islink(lf) and os.path.realpath(lf) == os.path.realpath(tf)
+    assert names(tf) == ['R'] and os.listdir(l) == ['a.3dm']
+    assert sorted(os.listdir(t)) == ['a.3dm', 'a.3dm.bak'] and open(str(t / 'a.3dm.bak'), 'rb').read() == before
