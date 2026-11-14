@@ -56,3 +56,15 @@ after the backup passes the same probe and structure checks as a source; the rep
 restore can be undone. Exit 1 and no change when there is no backup or it is truncated/damaged.
 
 Durability: after os.replace the containing directory is fsynced on posix (best effort, failure ignored; no-op on Windows).
+
+## Additional proofs (queue 131-144)
+
+- Four processes racing renames on one file: every outcome valid, no tmp or lock left.
+- Ten chained renames: ten distinct backups, first equals the source, final differs only in layers.
+- Odd new names (NUL, control chars, 10k chars, empty, spaces, unicode, `::`): refused with original intact or exact
+  read-back; empty and NUL never accepted.
+- Odd file names (255 chars refused cleanly because the lock name is too long; dots, unicode, hidden accepted).
+- Disk full halfway through the backup copy: save refused, no truncated backup left (bug found and fixed).
+- Permissions kept, mtime policy, truncated sources at 11 lengths refused, `restore-backup`, directory fsync.
+- All four permanent fuzz/hang regression files, case-only renames, a 2000-layer synthetic file (1 of 2000 layer
+  records changes), every non-layer table identical after rename on 52 samples.
