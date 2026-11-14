@@ -924,3 +924,27 @@ def test_rename_to_same_name_refused_with_clear_reason(tmp_path):
     n = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused, match='equals the old'): write.rename_layer(f, n, n)
     assert open(f, 'rb').read() == b and os.listdir(str(tmp_path)) == ['a.3dm']
+
+
+def _dangling_parent_source(dst):
+    """synthetic V7 file with layers A and B (B child of A), B's parent id patched to an unknown uuid.
+    The layer record's outer chunk CRC (last 4 bytes of the 0x2fffc chunk) skips the nested 0x40008000 chunk (16 data bytes + 12 header)."""
+    import struct, uuid, zlib
+    m = R.File3dm(); a = R.Layer(); a.Name = 'A'; m.Layers.Add(a); b = R.Layer(); b.Name = 'B'; b.ParentLayerId = m.Layers[0].Id; m.Layers.Add(b)
+    m.Write(dst, 7); d = bytearray(open(dst, 'rb').read()); pid = m.Layers[0].Id.bytes_le
+    r = [r for r in write._table_records(bytes(d), 0x10000011)[2] if r[2] == 0x20008050][1]; p0 = r[0] + 12; p = bytearray(d[p0:p0 + len(r[3])])
+    i = p.find(pid); assert i > 0
+    p[i:i + 16] = uuid.uuid4().bytes_le
+    inner = 160; assert struct.unpack_from('<I', p, inner)[0] == 0x40008000
+    struct.pack_into('<I', p, len(p) - 20, zlib.crc32(bytes(p[56:inner] + p[inner + 28:len(p) - 20])))
+    d[p0:p0 + len(p)] = p; open(dst, 'wb').write(d)
+
+
+def test_source_with_dangling_layer_parent_keeps_child_record_bytes(tmp_path):
+    """queue 93 rest: the library repairs a dangling parent id on load (parent becomes none); the save must not carry that silent repair into
+    the untouched child layer: its record stays byte-identical to the source, only the renamed layer's record changes"""
+    f = str(tmp_path / 'a.3dm'); _dangling_parent_source(f)
+    assert R.File3dm.Read(f) is not None
+    before = open(f, 'rb').read(); write.rename_layer(f, 'A', 'AA')
+    ra = [r for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
+    assert ra[1][3] == rb[1][3] and ra[0][3] != rb[0][3]
