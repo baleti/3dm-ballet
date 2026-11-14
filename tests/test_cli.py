@@ -1,4 +1,4 @@
-import os, re, subprocess, sys, urllib.request
+import json, os, re, subprocess, sys, urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def test_serve_endpoints():
     sys.path.insert(0, ROOT)
@@ -82,3 +82,24 @@ def test_restore_backup_roundtrip_and_refusals(tmp_path, capsys):
     open(bad + '.bak', 'wb').write(orig[:len(orig) // 2])                                    # truncated backup
     assert cli.main(['restore-backup', bad]) == 1 and open(bad, 'rb').read() == before
     assert sorted(x for x in os.listdir(tmp_path) if x.startswith('b.')) == ['b.3dm', 'b.3dm.bak']
+
+
+def test_info_of_saved_file_equals_source_except_layer_name(tmp_path, capsys):
+    """item 165: CLI info of a file saved by the guard is the same as of the source, apart from the renamed layer"""
+    import shutil
+    sys.path.insert(0, ROOT)
+    from tm3dballet import cli, write
+    import rhino3dm as R
+    src = os.path.join(ROOT, 'tests', 'data', 'V7-v7_my_brep.3dm'); f = str(tmp_path / 'a.3dm'); shutil.copy(src, f)
+    lay = R.File3dm.Read(f).Layers[0].Name
+    def info(p):
+        return subprocess.run([os.path.join(ROOT, '3dm-ballet'), 'info', p], capture_output=True, text=True)
+    a = info(src)
+    assert cli.main(['rename-layer', f, lay, 'zzname', '--overwrite']) == 0
+    b = info(f)
+    assert a.returncode == b.returncode
+    ja, jb = json.loads(a.stdout), json.loads(b.stdout)
+    ja.pop('file'); jb.pop('file')
+    sa, sb = json.dumps(ja, sort_keys=True), json.dumps(jb, sort_keys=True)
+    assert sa.replace(json.dumps(lay), '"<L>"') == sb.replace('"zzname"', '"<L>"'), (a.stdout, b.stdout)
+    assert sa != sb

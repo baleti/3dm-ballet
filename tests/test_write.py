@@ -1510,3 +1510,50 @@ def test_lock_of_dead_pid_is_cleared_at_once_live_pid_respected(tmp_path):
         open(lk, 'w').write(content)
         with pytest.raises(write.Refused): write.rename_layer(f, 'R1', 'R2')
         assert names(f) == ['R1']; os.remove(lk)
+
+
+def test_source_on_other_filesystem_than_tmpdir_stays_in_source_dir(tmp_path, monkeypatch):
+    """item 162: TMPDIR on another fs (/dev/shm) than the source: tmp is created beside the source, so os.replace never crosses devices"""
+    if not os.path.isdir('/dev/shm') or os.stat('/dev/shm').st_dev == os.stat(tmp_path).st_dev: pytest.skip('no second filesystem')
+    monkeypatch.setenv('TMPDIR', '/dev/shm'); tempfile.tempdir = None
+    try:
+        f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+        write.rename_layer(f, 'brep', 'X'); assert names(f) == ['X']
+        assert sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
+    finally: tempfile.tempdir = None
+
+
+def test_concurrent_save_and_restore_one_wins_file_valid(tmp_path):
+    """item 163: rename and restore-backup started together on the same file: the lock serializes them; the file is always a valid old or new version"""
+    import threading
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    write.rename_layer(f, 'brep', 'N1')                       # makes a .bak with the original
+    res = []
+    def a():
+        try: write.rename_layer(f, 'N1', 'N2'); res.append('rename')
+        except write.Refused: res.append('rename refused')
+    def b():
+        try: write.restore_backup(f); res.append('restore')
+        except write.Refused: res.append('restore refused')
+    ts = [threading.Thread(target=x) for x in (a, b)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert len(res) == 2 and names(f) in (['N1'], ['N2'], ['brep'])
+    assert not any(n.endswith('.lock') or n.endswith('.tmp') for n in os.listdir(tmp_path))
+    for n in os.listdir(tmp_path):
+        if '.bak' in n: assert len(names(str(tmp_path / n))) == 1
+
+
+def test_restore_with_symlinked_file_and_symlinked_backup(tmp_path):
+    """item 164: restore through a symlink replaces the target and keeps the link; a symlinked newest backup is refused and nothing changes"""
+    if os.name != 'posix': pytest.skip('posix')
+    real = tmp_path / 'real'; real.mkdir(); link = tmp_path / 'link.3dm'
+    f = str(real / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); os.symlink(f, link)
+    write.rename_layer(f, 'brep', 'N1')
+    write.restore_backup(str(link)); assert os.path.islink(link) and names(f) == ['brep'] and sorted(os.listdir(tmp_path)) == ['link.3dm', 'real']
+    # newest backup replaced by a symlink to another file
+    other = str(tmp_path / 'other.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), other)
+    baks = sorted(n for n in os.listdir(real) if '.bak' in n); top = max(baks, key=lambda n: int(n.rsplit('.', 1)[1]) if n.rsplit('.', 1)[1].isdigit() else 0)
+    os.remove(real / top); os.symlink(other, real / top)
+    before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.restore_backup(f)
+    assert open(f, 'rb').read() == before and not any(n.endswith(('.lock', '.tmp')) for n in os.listdir(real))
