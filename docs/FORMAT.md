@@ -41,6 +41,7 @@ then Brep tessellation, SubD, Annotation text.
 - rhino3dm rewrites the whole file; identity is checked by a semantic snapshot (object ids, structural geometry fingerprints,
   attributes, layers, materials, block definitions, plug-in data list, RDK xml) of the input vs the re-read output.
 - Archive versions 1 to 4 are refused: writing V2 converts PolyCurve to NurbsCurve (same shape, different representation).
+- Source layer table must be consistent (layer_id_problem): a duplicated layer record made the library renumber the duplicate id silently on save (found by byte patching a public V6 sample); each layer id must sit in exactly one layer record and parents must exist. Dangling-parent branch is not yet covered by a byte-patched test (V7 layer record sub-chunk CRCs not mapped).
 - Public samples: 33 writable (V5 to V8) plus 20 extra; 2 are caught as lossy (V5 example_file annotation changes, V7
   rhino_logo_annotations drops one opaque plug-in data block). Encode() bytes are NOT canonical (meshes differ although all
   arrays are equal), so meshes and curves use structural fingerprints.
