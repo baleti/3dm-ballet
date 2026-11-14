@@ -1049,3 +1049,14 @@ def test_unedited_table_chunks_byte_identical_after_rename_on_all_samples(tmp_pa
             if ob is None or oa is None: continue
             assert [b[o:o + l] for o, l in ob] == [a[o:o + l] for o, l in oa], (os.path.basename(src), hex(t)); n += 1
     assert n >= 300
+
+
+@pytest.mark.parametrize('new', ['alpha', 'ALPHA', 'Alpha ', ' Alpha', 'Alpha ', 'Alpha\t', ''])
+def test_rename_colliding_or_padded_name_refused_bytes_unchanged(new, tmp_path):
+    """queue 114: case-insensitive sibling collision, leading/trailing space, nbsp, tab, empty: refused with the file byte-identical and no .bak"""
+    f = str(tmp_path / 'c.3dm'); m = R.File3dm()
+    for n in ('Alpha', 'Beta'):
+        l = R.Layer(); l.Name = n; m.Layers.Add(l)
+    assert m.Write(f, 7); b = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(f, 'Beta', new)
+    assert open(f, 'rb').read() == b and os.listdir(str(tmp_path)) == ['c.3dm']
