@@ -1385,3 +1385,28 @@ def test_case_only_rename_accepted_and_back(tmp_path):
     try: write.rename_layer(f, 'brep', 'brep')
     except write.Refused: pass
     assert names(f) == ['brep']
+
+
+def test_2000_layers_rename_one_others_identical_and_fast(tmp_path):
+    """item 144: synthetic file with 2000 layers (3 levels deep) and a few objects: rename one, the other 1999 layer records identical, bounded time"""
+    import time, uuid
+    m = R.File3dm(); ids = []
+    for i in range(2000):
+        l = R.Layer(); l.Name = 'L%04d' % (i % 500)           # many repeated names under different parents
+        l.Id = uuid.uuid4()
+        if i >= 20: l.ParentLayerId = ids[(i * 7) % min(i, 20)] if i % 3 else ids[i - 1] if i % 50 else uuid.UUID(int=0)
+        m.Layers.Add(l); ids.append(l.Id)
+    for i in range(30):
+        a = R.ObjectAttributes(); a.LayerIndex = (i * 61) % 2000; m.Objects.AddPoint(R.Point3d(i, 0, 0), a)
+    f = str(tmp_path / 'big.3dm'); assert m.Write(f, 7)
+    s0 = R.File3dm.Read(f); recs0 = [l.Encode() for l in s0.Layers]; lay = s0.Layers[1000]
+    full = lay.Name; t = time.time()
+    try: write.rename_layer(f, full, 'Renamed')
+    except write.Refused as e:
+        assert os.listdir(tmp_path) == ['big.3dm'], e
+        pytest.skip('refused (safe): %s' % str(e)[:80]); return
+    assert time.time() - t < 120
+    m1 = R.File3dm.Read(f); assert len(m1.Layers) == 2000
+    diff = [i for i, (a, b) in enumerate(zip(recs0, [l.Encode() for l in m1.Layers])) if a != b]
+    assert len(diff) == 1 and m1.Layers[diff[0]].Name == 'Renamed', diff
+    assert len(m1.Objects) == 30
