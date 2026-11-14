@@ -682,6 +682,8 @@ def rename_layer(path, old, new):
         if len(n) != 1: raise Refused('layer %r found %d times' % (old, len(n)))
         if not isinstance(new, str) or not new.strip() or new != new.strip(): raise Refused('invalid layer name: empty or padded with whitespace')
         if any(ord(c) < 32 or ord(c) == 127 for c in new): raise Refused('invalid layer name: control character')
+        try: new.encode('utf-8')
+        except UnicodeEncodeError: raise Refused('invalid layer name: not valid Unicode (lone surrogate)')
         if '::' in new: raise Refused('invalid layer name: contains the layer path separator')
         if len(new) > 1000: raise Refused('invalid layer name: longer than 1000 characters')
         if new == old: raise Refused('new layer name equals the old one, nothing to save')

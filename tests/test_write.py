@@ -1557,3 +1557,11 @@ def test_restore_with_symlinked_file_and_symlinked_backup(tmp_path):
     before = open(f, 'rb').read()
     with pytest.raises(write.Refused): write.restore_backup(f)
     assert open(f, 'rb').read() == before and not any(n.endswith(('.lock', '.tmp')) for n in os.listdir(real))
+
+
+@pytest.mark.parametrize('bad', ['a\0b', '\ud800x', '', 'x' * 10000, 'a::b', 'a\nb', 'a\tb', '\udfff'])
+def test_hostile_names_refused_with_Refused_and_original_intact(bad, tmp_path):
+    """item 166: a lone surrogate used to escape as a raw TypeError; every hostile name must be a clean refusal"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(f, 'brep', bad)
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
