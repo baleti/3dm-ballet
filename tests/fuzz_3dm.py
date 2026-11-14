@@ -77,9 +77,9 @@ def mutate_layer_table(b, rnd):
         o += 12 + l
     return b
 
-def run(n=40, seed=1, modes=None):
+def run(n=40, seed=1, modes=None, pattern=None):
     MODES_ = modes or MODES
-    rnd = random.Random(seed); files = sorted(glob.glob(os.path.join(HERE, 'data', 'V[5-8]*.3dm')))
+    rnd = random.Random(seed); files = sorted(glob.glob(pattern or os.path.join(HERE, 'data', 'V[5-8]*.3dm')))
     res = {}
     env = dict(os.environ, PYTHONPATH=os.pathsep.join([os.path.join(HERE, '..'), os.path.join(HERE, '..', '.deps')]))
     for i in range(n):
