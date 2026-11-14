@@ -792,7 +792,7 @@ def test_readonly_source_file_refused_or_original_intact(tmp_path):
     f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); os.chmod(f, 0o444)
     before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
     try:
-        with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_x')
+        with pytest.raises(write.Refused, match='read-only'): write.rename_layer(f, lay, lay + '_x')
         assert open(f, 'rb').read() == before and os.stat(f).st_mode & 0o777 == 0o444
     finally: os.chmod(f, 0o644)
 
@@ -1321,7 +1321,7 @@ def test_mode_kept_mtime_updated_backup_keeps_source_mtime(mode, tmp_path):
     old = 1_500_000_000; os.utime(f, (old, old)); os.chmod(f, mode)
     try: write.rename_layer(f, 'brep', 'R')
     except write.Refused as e:
-        assert mode == 0o444 and open(f, 'rb').read(), e   # refusing a read-only source is also safe
+        assert mode == 0o444 and 'read-only' in str(e), e   # refusing a read-only source is also safe
         return
     assert (os.stat(f).st_mode & 0o777) == mode
     assert os.stat(f).st_mtime > old + 1000
@@ -1599,3 +1599,21 @@ def test_restore_with_truncated_newest_backup_refused_file_untouched(tmp_path):
     os.truncate(f + '.bak', 1000); before = open(f, 'rb').read()
     with pytest.raises(write.Refused): write.restore_backup(f)
     assert open(f, 'rb').read() == before and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
+
+
+def test_fifo_and_directory_sources_refused_without_hanging(tmp_path):
+    """item 178: a FIFO or directory named like a .3dm is refused as not a regular file (a FIFO must not block the reader)"""
+    if os.name != 'posix': pytest.skip('posix')
+    ff = str(tmp_path / 'f.3dm'); os.mkfifo(ff); dd = str(tmp_path / 'd.3dm'); os.mkdir(dd)
+    for p in (ff, dd):
+        with pytest.raises(write.Refused, match='not a regular file'): write.rename_layer(p, 'x', 'y')
+    assert sorted(os.listdir(tmp_path)) == ['d.3dm', 'f.3dm']
+
+
+@pytest.mark.parametrize('name', ['V8-v8_caps_and_joins.3dm', 'V8-v8_section_hatch.3dm'])
+def test_rename_on_v8_samples_roundtrip(name, tmp_path):
+    """item 177: V8 archive files: rename accepted or cleanly refused; never a traceback; original intact on refusal"""
+    src = os.path.join(D, '..', 'data_ext', name) if not os.path.exists(os.path.join(D, name)) else os.path.join(D, name)
+    f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
+    try: write.rename_layer(f, lay, 'Zz'); assert names(f)[0] == 'Zz' and open(f + '.bak', 'rb').read() == before
+    except write.Refused: assert open(f, 'rb').read() == before

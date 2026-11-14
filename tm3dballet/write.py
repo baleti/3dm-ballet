@@ -582,6 +582,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
     try: mode = os.stat(path).st_mode
     except OSError as e: raise Refused('cannot stat: %s' % e)
     if not stat.S_ISREG(mode): raise Refused('not a regular file')
+    if os.name == 'posix' and not os.access(path, os.W_OK): raise Refused('file is read-only (no write permission); clear the read-only flag first, it will not be overridden')
     try: probe.probe(path)
     except probe.Unreadable as e: raise Refused(str(e))
     if os.stat(path).st_nlink > 1: raise Refused('file has multiple hard links; replacing it would silently detach the other names')
