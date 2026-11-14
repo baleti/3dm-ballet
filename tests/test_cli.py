@@ -122,3 +122,12 @@ def test_cli_rename_trailing_bytes_after_last_chunk_refused(tmp_path):
     before = f.read_bytes()
     r = subprocess.run([os.path.join(ROOT, '3dm-ballet'), 'rename-layer', str(f), 'brep', 'N', '--overwrite'], capture_output=True, text=True)
     assert r.returncode == 1 and 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(tmp_path) == ['t.3dm']
+
+
+def test_file_size_limit_during_save_refused_original_intact(tmp_path):
+    """item 185: RLIMIT_FSIZE below the output size (write fails mid-save): clean refusal, original byte-identical, no tmp left"""
+    if os.name != 'posix': import pytest; pytest.skip('posix')
+    import shutil
+    f = tmp_path / 'a.3dm'; shutil.copy(os.path.join(ROOT, 'tests', 'data', 'V7-v7_my_brep.3dm'), f); before = f.read_bytes()
+    r = subprocess.run(['sh', '-c', 'ulimit -f 8; exec "$0" rename-layer "$1" brep NEWNAME --overwrite', os.path.join(ROOT, '3dm-ballet'), str(f)], capture_output=True, text=True)
+    assert r.returncode == 1 and 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(tmp_path) == ['a.3dm'], r.stdout + r.stderr
