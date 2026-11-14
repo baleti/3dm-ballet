@@ -1655,3 +1655,17 @@ def test_rename_in_100_deep_layer_chain_only_that_segment_changes(tmp_path):
     a = paths(f); write.rename_layer(f, 'L50', 'MID'); b = paths(f)
     assert all(x[:2] == y[:2] for x, y in zip(a, b))
     assert [y[2] for y in b] == [x[2].replace('L50', 'MID', 1) if i >= 50 else x[2] for i, x in enumerate(a)]
+
+
+def test_backup_with_flipped_byte_refused_and_removed(tmp_path, monkeypatch):
+    """item 189: the backup copy is compared by hash, not only by size; a flipped byte in the copy refuses the save, removes the bad backup, original intact"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); real = shutil.copy2
+    def evil(src, dst, *a, **k):
+        r = real(src, dst, *a, **k)
+        if str(dst).endswith('.bak'):
+            with open(dst, 'r+b') as h: h.seek(100); c = h.read(1); h.seek(100); h.write(bytes([c[0] ^ 1]))
+        return r
+    monkeypatch.setattr(shutil, 'copy2', evil)
+    with pytest.raises(write.Refused, match='backup'): write.rename_layer(f, 'brep', 'N')
+    monkeypatch.undo()
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']

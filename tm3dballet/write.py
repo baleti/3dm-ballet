@@ -661,6 +661,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
                 while os.path.lexists(bak): k += 1; bak = '%s.bak.%d' % (path, k)   # never overwrite an earlier backup
                 made = True; shutil.copy2(path, bak)
                 if os.path.getsize(bak) != os.path.getsize(path): raise OSError('backup size mismatch')
+                if hashlib.sha256(open(bak, 'rb').read()).hexdigest() != sig0[2]: raise OSError('backup content differs from the source')
             except OSError as e:
                 try:
                     if made and os.path.lexists(bak): os.remove(bak)   # never leave a truncated backup (bak was free before the copy)
