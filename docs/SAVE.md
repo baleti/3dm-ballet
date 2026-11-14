@@ -72,3 +72,13 @@ Durability: after os.replace the containing directory is fsynced on posix (best 
 Group: the saved file gets the original file's group back (chown to the same gid); when that is not possible (user not a member) the save is refused instead of silently changing the group.
 
 Stale locks: a lock whose pid no longer exists (posix) is cleared at once; otherwise a lock blocks for LOCK_STALE_S (10 min).
+
+## Additional proofs (queue 162-179)
+
+- Temp file always beside the source (TMPDIR on another filesystem is irrelevant); rename racing restore-backup: the lock serializes, file always a valid old or new version.
+- `restore-backup` through a symlinked file replaces the target and keeps the link; a symlinked or truncated newest backup is refused with the file untouched.
+- Layer names that are not valid Unicode (lone surrogate, which Linux argv produces for invalid UTF-8) are refused cleanly.
+- Backup names already taken by a directory or a dangling symlink are skipped; backups are never pruned (one per save, 30 saves = 30 valid backups).
+- Bytes after the last chunk (junk or zeros) are refused, since the writer would drop them. FIFO/directory sources refused without hanging.
+- A read-only source (no write permission) is refused up front; the flag is never overridden.
+- CLI works with spaces, accents and a leading-dash file name given as a path (a bare `--` terminator is not supported).
