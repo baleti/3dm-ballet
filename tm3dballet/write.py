@@ -623,6 +623,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if ver >= 50 and not allow_objects:
             rc = record_changes(path, tmp)
             if rc: raise Refused('save re-encoded or dropped records of tables no edit touches: %s' % ['%x/%x' % (a, b & 0xffffffff) for a, b in rc[:4]])
+        tmp_sha = hashlib.sha256(open(tmp, 'rb').read()).hexdigest()   # what the gate below judges; re-checked right before the replace
         try: probe.probe(tmp)
         except probe.Unreadable as e: raise Refused('output ' + str(e))
         m2 = R.File3dm.Read(tmp)
@@ -665,6 +666,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
                     if made and os.path.lexists(bak): os.remove(bak)   # never leave a truncated backup (bak was free before the copy)
                 except OSError: pass
                 raise Refused('backup failed, original untouched: %s' % e)
+        if hashlib.sha256(open(tmp, 'rb').read()).hexdigest() != tmp_sha: raise Refused('output file changed after it was verified (disk fault or another process); original untouched')
         try: os.replace(tmp, path)
         except OSError as e: raise Refused('replace failed, original untouched: %s' % e)
         fsync_dir(d)

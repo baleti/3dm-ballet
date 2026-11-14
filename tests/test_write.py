@@ -1617,3 +1617,41 @@ def test_rename_on_v8_samples_roundtrip(name, tmp_path):
     f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
     try: write.rename_layer(f, lay, 'Zz'); assert names(f)[0] == 'Zz' and open(f + '.bak', 'rb').read() == before
     except write.Refused: assert open(f, 'rb').read() == before
+
+
+def test_output_modified_after_gate_is_not_installed(tmp_path, monkeypatch):
+    """item 186: the temp file is flipped by one byte after the gate verified it (simulated at the backup step, which runs after the gate and before the replace): refused, original intact, no leftovers"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    real = shutil.copy2
+    def evil(src, dst, *a, **k):
+        r = real(src, dst, *a, **k)
+        for n in os.listdir(tmp_path):
+            if n.endswith('.tmp'):
+                with open(tmp_path / n, 'r+b') as h: h.seek(200); c = h.read(1); h.seek(200); h.write(bytes([c[0] ^ 1]))
+        return r
+    monkeypatch.setattr(shutil, 'copy2', evil)
+    with pytest.raises(write.Refused, match='changed after'): write.rename_layer(f, 'brep', 'N')
+    monkeypatch.undo()
+    assert open(f, 'rb').read() == before and sorted(os.listdir(tmp_path)) in (['a.3dm'], ['a.3dm', 'a.3dm.bak'])
+
+
+def test_rename_in_100_deep_layer_chain_only_that_segment_changes(tmp_path):
+    """item 182: 100 nested layers; rename the 50th: ids and parent ids unchanged, full paths change only by that segment"""
+    import uuid
+    f = str(tmp_path / 'deep.3dm'); m = R.File3dm(); par = uuid.UUID(int=0)
+    for i in range(100):
+        l = R.Layer(); l.Name = 'L%d' % i; l.Id = uuid.uuid4(); l.ParentLayerId = par; m.Layers.Add(l); par = l.Id
+    m.Write(f, 7)
+    def paths(p):
+        ls = R.File3dm.Read(p).Layers; by = {str(l.Id): l for l in ls}
+        def full(l):
+            n = []
+            while True:
+                n.append(l.Name); q = str(l.ParentLayerId)
+                if q not in by: break
+                l = by[q]
+            return '::'.join(reversed(n))
+        return [(str(l.Id), str(l.ParentLayerId), full(l)) for l in ls]
+    a = paths(f); write.rename_layer(f, 'L50', 'MID'); b = paths(f)
+    assert all(x[:2] == y[:2] for x, y in zip(a, b))
+    assert [y[2] for y in b] == [x[2].replace('L50', 'MID', 1) if i >= 50 else x[2] for i, x in enumerate(a)]
