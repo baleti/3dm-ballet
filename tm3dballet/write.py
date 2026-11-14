@@ -541,6 +541,16 @@ def gate(m):
 
 LOCK_STALE_S = 600
 
+def _owner_dead(lk):
+    """posix: the pid written in the lock no longer exists (saving process was killed). Unreadable pid or another user's process: not dead."""
+    if os.name != 'posix': return False
+    try:
+        pid = int(open(lk).read().strip())
+        if pid <= 0: return False
+        os.kill(pid, 0); return False
+    except ProcessLookupError: return True
+    except (OSError, ValueError): return False
+
 def _lock(path):
     """exclusive lock file next to the target (portable, O_EXCL); a lock older than LOCK_STALE_S is treated as left by a killed save"""
     import time
@@ -550,7 +560,7 @@ def _lock(path):
             fd = os.open(lk, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600); os.write(fd, str(os.getpid()).encode()); os.close(fd); return lk
         except FileExistsError:
             try:
-                if time.time() - os.stat(lk).st_mtime > LOCK_STALE_S: os.remove(lk); continue
+                if time.time() - os.stat(lk).st_mtime > LOCK_STALE_S or _owner_dead(lk): os.remove(lk); continue
             except OSError: pass
             raise Refused('another save of this file is in progress (lock %s)' % os.path.basename(lk))
         except OSError as e: raise Refused('cannot create lock file: %s' % e)

@@ -70,3 +70,5 @@ Durability: after os.replace the containing directory is fsynced on posix (best 
   records changes), every non-layer table identical after rename on 52 samples.
 
 Group: the saved file gets the original file's group back (chown to the same gid); when that is not possible (user not a member) the save is refused instead of silently changing the group.
+
+Stale locks: a lock whose pid no longer exists (posix) is cleared at once; otherwise a lock blocks for LOCK_STALE_S (10 min).

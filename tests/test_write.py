@@ -254,7 +254,7 @@ def test_unknown_record_in_object_table_refused(tmp_path):
 
 def test_lock_blocks_concurrent_save_and_is_released(tmp_path):
     f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
-    open(f + '.3dmballet.lock', 'w').write('999')
+    open(f + '.3dmballet.lock', 'w').write(str(os.getpid()))
     with pytest.raises(write.Refused, match='in progress'): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before
     os.utime(f + '.3dmballet.lock', (1, 1))            # stale lock (killed save) is broken
@@ -1179,7 +1179,7 @@ def test_stale_lock_from_killed_save_is_cleared_fresh_lock_is_respected(tmp_path
     """queue 124: a lock left by a killed save blocks a new save only while younger than LOCK_STALE_S; once older the save proceeds, result correct, lock released"""
     import time
     f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); b = open(f, 'rb').read(); lay = R.File3dm.Read(f).Layers[0].Name
-    lk = f + '.3dmballet.lock'; open(lk, 'w').write('12345')
+    lk = f + '.3dmballet.lock'; open(lk, 'w').write(str(os.getpid()))
     with pytest.raises(write.Refused, match='in progress'): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == b and os.path.exists(lk)
     old = time.time() - write.LOCK_STALE_S - 60; os.utime(lk, (old, old))
@@ -1496,3 +1496,17 @@ def test_read_only_filesystem_refused_nothing_created(tmp_path):
     if 'SAVED' not in r.stdout and 'REFUSED' not in r.stdout: pytest.skip('user namespaces unavailable: %s' % r.stderr[:100])
     assert 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(d) == ['a.3dm']
 
+
+
+def test_lock_of_dead_pid_is_cleared_at_once_live_pid_respected(tmp_path):
+    """a save killed by SIGKILL leaves its lock; the next save must not wait LOCK_STALE_S. A lock of a live process, or with junk content, still blocks."""
+    if os.name != 'posix': pytest.skip('posix')
+    import subprocess, sys
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); lk = f + '.3dmballet.lock'
+    p = subprocess.Popen([sys.executable, '-c', 'pass']); p.wait()
+    open(lk, 'w').write(str(p.pid))
+    write.rename_layer(f, 'brep', 'R1'); assert names(f) == ['R1'] and not os.path.exists(lk)
+    for content in (str(os.getpid()), 'junk', ''):
+        open(lk, 'w').write(content)
+        with pytest.raises(write.Refused): write.rename_layer(f, 'R1', 'R2')
+        assert names(f) == ['R1']; os.remove(lk)
