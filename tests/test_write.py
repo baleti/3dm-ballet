@@ -965,3 +965,17 @@ def test_source_with_layer_parent_cycle_refused_or_records_preserved(tmp_path):
     except write.Refused: assert open(f, 'rb').read() == before; return
     ra = [r for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
     assert ra[0][3] == rb[0][3]
+
+
+def test_deep_layer_tree_rename_not_falsely_refused(tmp_path):
+    """queue 105: the first layer-id gate counted a parent id appearing in its children's records as a duplicate and refused every nested file
+    (and was quadratic with str() calls: 144 s for 2000 layers). 300 layers, chains of 20: rename must succeed, only the renamed record changes."""
+    f = str(tmp_path / 'a.3dm'); m = R.File3dm(); prev = None
+    for i in range(300):
+        l = R.Layer(); l.Name = 'L%d' % i
+        if prev is not None and i % 20: l.ParentLayerId = prev
+        m.Layers.Add(l); prev = m.Layers[len(m.Layers) - 1].Id
+    m.Write(f, 7); before = open(f, 'rb').read()
+    assert write.rename_layer(f, 'L150', 'L150x') == ['layers differs']
+    ra = [r[3] for r in write._table_records(before, 0x10000011)[2] if r[2] == 0x20008050]; rb = [r[3] for r in write._table_records(open(f, 'rb').read(), 0x10000011)[2] if r[2] == 0x20008050]
+    assert len(ra) == len(rb) == 300 and sum(x != y for x, y in zip(ra, rb)) == 1

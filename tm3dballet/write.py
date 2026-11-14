@@ -375,11 +375,17 @@ def layer_id_problem(path, m):
     recs = [r[3] for r in t[2] if r[2] == 0x20008050]
     ids = [l.Id for l in m.Layers]
     if len(recs) != len(ids) or len(set(ids)) != len(ids): return 'layer table has %d records for %d distinct of %d layers (duplicate layer id)' % (len(recs), len(set(ids)), len(ids))
-    hits = [sum(1 for i in ids if i.bytes_le in r) for r in recs]
-    if any(sum(1 for r in recs if i.bytes_le in r) != 1 for i in ids): return 'a layer id is missing from the layer records or sits in two (duplicate or renumbered id)'
-    if any(h != 1 for h in hits): return 'a layer record does not carry exactly one known layer id (duplicate or renumbered id)'
+    import collections
+    parents = collections.Counter(str(l.ParentLayerId) for l in m.Layers)
+    # a layer id sits in its own record and in the record of each direct child (parent link)
+    raw = [i.bytes_le for i in ids]; seen = collections.Counter(); per_rec = []
+    for r in recs:
+        h = [k for k, rb in enumerate(raw) if rb in r]; per_rec.append(len(h)); seen.update(h)
+    if any(seen[k] != 1 + parents[str(ids[k])] for k in range(len(ids))): return 'a layer id is missing from the layer records or sits in two (duplicate or renumbered id)'
+    if any(h not in (1, 2) for h in per_rec): return 'a layer record does not carry its own layer id (duplicate or renumbered id)'
+    idset = set(str(i) for i in ids)
     for l in m.Layers:
-        if str(l.ParentLayerId) != '00000000-0000-0000-0000-000000000000' and l.ParentLayerId not in ids: return 'layer parent id points to no layer'
+        if str(l.ParentLayerId) != '00000000-0000-0000-0000-000000000000' and str(l.ParentLayerId) not in idset: return 'layer parent id points to no layer'
     return None
 
 def structure_problem(path):
