@@ -1443,3 +1443,13 @@ def test_sticky_and_setgid_directories(dmode, tmp_path):
     st = os.stat(f)
     assert names(f) == ['R'] and (st.st_mode & 0o7777) == 0o640 and st.st_uid == before.st_uid
     assert sorted(os.listdir(d)) == ['a.3dm', 'a.3dm.bak']
+
+
+@pytest.mark.parametrize('new', ['  lead', 'trail  ', ' both ', 'café', 'café', 'Å', 'Å', 'a\r\nb', '﻿bom', 'é' * 50], ids=['lead', 'trail', 'both', 'nfc', 'nfd', 'ring_nfd', 'ring_nfc', 'crlf', 'bom', 'nfd_long'])
+def test_names_with_spaces_and_normalization_roundtrip_exactly(new, tmp_path):
+    """item 160: no trimming, normalising or newline conversion: NFC and NFD forms stay distinct; refused is also acceptable"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); before = open(f, 'rb').read()
+    try: write.rename_layer(f, 'brep', new)
+    except write.Refused:
+        assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']; return
+    assert names(f) == [new]

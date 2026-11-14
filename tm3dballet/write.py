@@ -668,6 +668,7 @@ def rename_layer(path, old, new):
         if any(l.Name.lower() == new.lower() and str(l.ParentLayerId) == str(n[0].ParentLayerId) and l is not n[0] and l.Index != n[0].Index for l in m.Layers):
             raise Refused('a sibling layer already has that name')
         n[0].Name = new
+        if n[0].Name != new: raise Refused('the library would store a different name than requested (invisible leading character dropped); refused')
     return edit_file(path, edit, lambda ds: ds == ['layers differs'])
 
 
