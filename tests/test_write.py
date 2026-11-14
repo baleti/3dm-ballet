@@ -1582,3 +1582,20 @@ def test_thirty_saves_every_backup_valid_and_distinct_names(tmp_path):
     for i in range(30): write.rename_layer(f, cur, 'N%d' % i); cur = 'N%d' % i
     baks = sorted(n for n in os.listdir(tmp_path) if '.bak' in n); assert len(baks) == 30
     seen = sorted(names(str(tmp_path / n))[0] for n in baks); assert seen == sorted(['brep'] + ['N%d' % i for i in range(29)])
+
+
+def test_zero_padded_tail_refused(tmp_path):
+    """item 174: 4 KB of zero bytes after the end-of-file chunk: refused, file untouched"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    with open(f, 'ab') as h: h.write(b'\0' * 4096)
+    before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(f, 'brep', 'N')
+    assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']
+
+
+def test_restore_with_truncated_newest_backup_refused_file_untouched(tmp_path):
+    """item 176: newest backup truncated to 1000 bytes: restore refuses, file byte-identical, no temp or lock left"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); write.rename_layer(f, 'brep', 'N')
+    os.truncate(f + '.bak', 1000); before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.restore_backup(f)
+    assert open(f, 'rb').read() == before and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
