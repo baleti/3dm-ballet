@@ -1273,3 +1273,16 @@ def test_ten_sequential_renames_backups_distinct_and_valid(tmp_path):
     m0, m1 = R.File3dm.Read(src), R.File3dm.Read(f)
     s0, s1 = write.snapshot(m0), write.snapshot(m1)
     assert write.diff(s0, s1) == ['layers differs']
+
+
+@pytest.mark.parametrize('new', ['a\x00b', 'tab\tx', 'nl\nx', 'x' * 10000, '', '   ', 'é中\U0001F600', 'a::b'], ids=['nul', 'tab', 'newline', 'long10k', 'empty', 'spaces', 'unicode', 'sep'])
+def test_odd_new_names_refused_or_exact_roundtrip(new, tmp_path):
+    """items 133, 134: either refused with the original byte-identical and nothing left, or the saved name reads back exactly"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    before = open(f, 'rb').read()
+    try: write.rename_layer(f, 'brep', new)
+    except write.Refused:
+        assert open(f, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']; return
+    assert names(f) == [new]
+    assert not [x for x in os.listdir(tmp_path) if x.endswith(('.tmp', '.lock'))]
+    assert new.strip() != '' and '\x00' not in new, 'empty/NUL names must be refused'
