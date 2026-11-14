@@ -894,3 +894,14 @@ def test_source_with_duplicate_layer_record_is_refused(tmp_path):
     with pytest.raises(write.Refused, match='duplicate|distinct|renumbered'): write.rename_layer(f, 'line layer', 'zz')
     assert open(f, 'rb').read() == before
     assert not os.path.exists(f + '.bak')
+
+
+def test_pre_v5_archives_always_refused_and_untouched(tmp_path):
+    """queue 97: every public V1-V4 sample (53 files): rename must refuse (no writer for those layouts) and leave the bytes alone, no .bak"""
+    n = 0
+    for src in sorted(glob.glob(os.path.join(os.path.dirname(__file__), 'data', 'V[1-4]*.3dm'))):
+        f = str(tmp_path / 'a.3dm'); shutil.copy(src, f); before = open(f, 'rb').read(); m = R.File3dm.Read(f)
+        if m is None or not len(m.Layers): continue
+        with pytest.raises(write.Refused): write.rename_layer(f, m.Layers[0].Name, m.Layers[0].Name + '_x')
+        assert open(f, 'rb').read() == before and not os.path.exists(f + '.bak'); n += 1
+    assert n >= 40
