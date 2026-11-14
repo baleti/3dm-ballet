@@ -1327,3 +1327,13 @@ def test_mode_kept_mtime_updated_backup_keeps_source_mtime(mode, tmp_path):
     assert os.stat(f).st_mtime > old + 1000
     assert int(os.stat(f + '.bak').st_mtime) == old
     assert names(f) == ['R']
+
+
+@pytest.mark.parametrize('n', [0, 1, 7, 32, 33, 49, 50, 100, 1000, 'half', 'minus1'])
+def test_truncated_source_refused_nothing_left(n, tmp_path):
+    """item 139: a source cut at any length is refused (never replaced by a 'repaired' file), bytes unchanged, directory unchanged"""
+    full = open(os.path.join(D, 'V7-v7_my_brep.3dm'), 'rb').read()
+    k = len(full) // 2 if n == 'half' else len(full) - 1 if n == 'minus1' else n
+    f = str(tmp_path / 'a.3dm'); open(f, 'wb').write(full[:k])
+    with pytest.raises(write.Refused): write.rename_layer(f, 'brep', 'R')
+    assert open(f, 'rb').read() == full[:k] and os.listdir(tmp_path) == ['a.3dm']
