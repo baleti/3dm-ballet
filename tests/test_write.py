@@ -1373,3 +1373,15 @@ def test_regress_files_rename_never_traceback_original_intact(f, tmp_path):
         assert open(g, 'rb').read() == before and os.listdir(tmp_path) == ['a.3dm']; return
     assert lay + '_x' in names(g) or lay == 'x'
     assert open(g + '.bak', 'rb').read() == before
+
+
+def test_case_only_rename_accepted_and_back(tmp_path):
+    """item 143: renaming a layer to the same name in different case is a real change (not a self-collision) and round-trips"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    assert write.rename_layer(f, 'brep', 'BREP') == ['layers differs'] and names(f) == ['BREP']
+    assert write.rename_layer(f, 'BREP', 'Brep') == ['layers differs'] and names(f) == ['Brep']
+    assert write.rename_layer(f, 'Brep', 'brep') == ['layers differs'] and names(f) == ['brep']
+    # same name unchanged: nothing to do, must not corrupt
+    try: write.rename_layer(f, 'brep', 'brep')
+    except write.Refused: pass
+    assert names(f) == ['brep']
