@@ -1286,3 +1286,18 @@ def test_odd_new_names_refused_or_exact_roundtrip(new, tmp_path):
     assert names(f) == [new]
     assert not [x for x in os.listdir(tmp_path) if x.endswith(('.tmp', '.lock'))]
     assert new.strip() != '' and '\x00' not in new, 'empty/NUL names must be refused'
+
+
+@pytest.mark.parametrize('name', ['x' * 251 + '.3dm', 'x' * 240 + '.3dm', 'trail.dot.3dm', 'sp ace é.3dm', '.hidden.3dm'], ids=['len255', 'len244', 'dots', 'unicode_space', 'hidden'])
+def test_long_and_odd_file_names(name, tmp_path):
+    """item 135: tmp, lock and backup names derive from the target; a name too long for them must be refused cleanly, never leave files or damage the source"""
+    f = str(tmp_path / name); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f)
+    before = open(f, 'rb').read()
+    try: write.rename_layer(f, 'brep', 'R')
+    except write.Refused:
+        assert open(f, 'rb').read() == before and os.listdir(tmp_path) == [name]; return
+    assert names(f) == ['R']
+    left = [x for x in os.listdir(tmp_path) if x.endswith(('.tmp', '.lock'))]
+    assert not left, left
+    bak = [x for x in os.listdir(tmp_path) if '.bak' in x]
+    assert len(bak) == 1 and open(str(tmp_path / bak[0]), 'rb').read() == before
