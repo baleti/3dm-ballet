@@ -103,3 +103,22 @@ def test_info_of_saved_file_equals_source_except_layer_name(tmp_path, capsys):
     sa, sb = json.dumps(ja, sort_keys=True), json.dumps(jb, sort_keys=True)
     assert sa.replace(json.dumps(lay), '"<L>"') == sb.replace('"zzname"', '"<L>"'), (a.stdout, b.stdout)
     assert sa != sb
+
+
+def test_cli_rename_path_with_spaces_unicode_and_leading_dash(tmp_path):
+    """item 172: directory with spaces and an accent, file name starting with a dash (given as ./name)"""
+    import shutil
+    d = tmp_path / 'sp ace é'; d.mkdir(); f = d / '-x y.3dm'; shutil.copy(os.path.join(ROOT, 'tests', 'data', 'V7-v7_my_brep.3dm'), f)
+    r = subprocess.run([os.path.join(ROOT, '3dm-ballet'), 'rename-layer', str(f), 'brep', 'N', '--overwrite'], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert sorted(os.listdir(d)) == ['-x y.3dm', '-x y.3dm.bak']
+
+
+def test_cli_rename_trailing_bytes_after_last_chunk_refused(tmp_path):
+    """item 173: bytes appended after the end-of-file chunk: refused (the writer would drop them), file untouched"""
+    import shutil
+    f = tmp_path / 't.3dm'; shutil.copy(os.path.join(ROOT, 'tests', 'data', 'V7-v7_my_brep.3dm'), f)
+    with open(f, 'ab') as h: h.write(b'TRAILING-JUNK')
+    before = f.read_bytes()
+    r = subprocess.run([os.path.join(ROOT, '3dm-ballet'), 'rename-layer', str(f), 'brep', 'N', '--overwrite'], capture_output=True, text=True)
+    assert r.returncode == 1 and 'REFUSED' in r.stdout and f.read_bytes() == before and os.listdir(tmp_path) == ['t.3dm']
