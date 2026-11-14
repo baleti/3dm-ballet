@@ -1682,3 +1682,14 @@ def test_installed_file_that_differs_from_verified_output_is_rolled_back(tmp_pat
     with pytest.raises(write.Refused, match='put back'): write.rename_layer(f, 'brep', 'N')
     monkeypatch.undo()
     assert open(f, 'rb').read() == before and not any(x.endswith(('.tmp', '.lock')) for x in os.listdir(tmp_path))
+
+
+def test_same_size_same_mtime_content_change_during_edit_is_detected(tmp_path):
+    """item 190: another process flips one byte and restores size and mtime (the touch -r trick): size+mtime alone would miss it; the content hash must not"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); lay = R.File3dm.Read(f).Layers[0].Name; st = os.stat(f)
+    def edit(m):
+        m.Layers[0].Name = lay + '_x'
+        with open(f, 'r+b') as h: h.seek(2000); c = h.read(1); h.seek(2000); h.write(bytes([c[0] ^ 1]))
+        os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+    with pytest.raises(write.Refused): write.edit_file(f, edit, lambda ds: ds == ['layers differs'])   # refused by the output checks or by the final source hash
+    assert os.stat(f).st_size == st.st_size and sorted(os.listdir(tmp_path)) == ['a.3dm']   # no backup, no temp, the (externally changed) file is left as is
