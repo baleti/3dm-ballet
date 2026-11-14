@@ -1133,3 +1133,23 @@ def test_saved_outputs_have_no_more_crc_invalid_records_than_source(tmp_path):
         (f0, o0), (f1, o1) = _crc_counts(b), _crc_counts(open(f, 'rb').read())
         assert f1 - o1 <= f0 - o0, (os.path.basename(src), (f0, o0), (f1, o1)); n += 1
     assert n >= 40
+
+
+@pytest.mark.parametrize('how', ['append', 'same_size_same_mtime', 'delete'])
+def test_source_swapped_by_another_process_during_edit_is_not_overwritten(how, tmp_path):
+    """queue 120: another writer changes the source after it was read and before the replace (appended bytes, same-size content change with mtime restored, deleted):
+    the save refuses (or fails) and never overwrites the newer file with a result computed from the stale one"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, 'V7-v7_my_brep.3dm'), f); lay = R.File3dm.Read(f).Layers[0].Name
+    def edit(m):
+        n = [l for l in m.Layers if l.Name == lay][0]; n.Name = lay + '_x'
+        st = os.stat(f)
+        if how == 'append': open(f, 'ab').write(b'\0' * 8)
+        elif how == 'same_size_same_mtime':
+            d = bytearray(open(f, 'rb').read()); d[-30] ^= 0xff; open(f, 'wb').write(d); os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
+        else: os.remove(f)
+    with pytest.raises((write.Refused, OSError)): write.edit_file(f, edit, lambda ds: ds == ['layers differs'])
+    if how == 'delete': assert not os.path.exists(f)
+    else:
+        d = open(f, 'rb').read(); orig = open(os.path.join(D, 'V7-v7_my_brep.3dm'), 'rb').read()
+        assert d != orig and len(d) in (len(orig), len(orig) + 8) and R.File3dm.Read(f).Layers[0].Name == lay
+    assert not [x for x in os.listdir(str(tmp_path)) if x not in ('a.3dm',) and not x.startswith('a.3dm.bak')], os.listdir(str(tmp_path))
