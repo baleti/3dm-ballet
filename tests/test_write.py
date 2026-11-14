@@ -474,7 +474,7 @@ def test_foreign_plugin_user_record_change_is_refused(tmp_path, monkeypatch):
     real = write.user_records
     monkeypatch.setattr(write, 'user_records', lambda p: [('11' * 16, b'x' * 50)] if p == f else real(p))
     lay = R.File3dm.Read(f).Layers[0].Name
-    with pytest.raises(write.Refused, match='user record'): write.rename_layer(f, lay, lay + '_x')
+    with pytest.raises(write.Refused, match='user record|re-encoded or dropped records'): write.rename_layer(f, lay, lay + '_x')
     assert open(f, 'rb').read() == before
 
 
@@ -876,3 +876,21 @@ def test_fuzz_escape_regression_reencoded_font_record_refused(tmp_path):
     lay = R.File3dm.Read(f).Layers[0].Name
     with pytest.raises(write.Refused): write.rename_layer(f, lay, lay + '_z')
     assert open(f, 'rb').read() == b0
+
+
+def _dup_layer_source(dst):
+    """V6 my_curves with its first layer record inserted a second time (same id), table and end-of-file lengths fixed up"""
+    import struct
+    b = open(os.path.join(os.path.dirname(__file__), 'data', 'V6-my_curves.3dm'), 'rb').read()
+    o, l, recs = write._table_records(b, 0x10000011)
+    r0 = recs[0]; ins = b[r0[0]:r0[0] + r0[1]]; end = recs[-1][0]
+    nb = bytearray(b[:end] + ins + b[end:]); struct.pack_into('<q', nb, o + 4, l + len(ins)); struct.pack_into('<q', nb, len(nb) - 8, len(nb))
+    open(dst, 'wb').write(nb)
+
+
+def test_source_with_duplicate_layer_record_is_refused(tmp_path):
+    """queue 93/88: a duplicate layer id in the source was silently renumbered by the library on save (accepted, original replaced). Must refuse."""
+    f = str(tmp_path / 'a.3dm'); _dup_layer_source(f); before = open(f, 'rb').read()
+    with pytest.raises(write.Refused, match='duplicate|distinct|renumbered'): write.rename_layer(f, 'line layer', 'zz')
+    assert open(f, 'rb').read() == before
+    assert not os.path.exists(f + '.bak')

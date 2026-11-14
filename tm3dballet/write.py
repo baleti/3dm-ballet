@@ -367,6 +367,21 @@ def notes_of(path):
 # plug-in ids whose user record the library regenerates in its own, longer layout (minor-version upgrade, same leading bytes)
 UPGRADED_USER_IDS = {'d583bd812071c4419a57c449336ff12c', 'a551aa671d79ec4b8aedd23b462b6f87'}
 
+def layer_id_problem(path, m):
+    """every layer record of an archive >= V5 must carry exactly one of the model's layer ids and every id must sit in exactly one record.
+    A duplicate id or a dangling parent in the source makes the library renumber or repair layers silently on save."""
+    b = open(path, 'rb').read(); t = _table_records(b, 0x10000011)
+    if t is None: return None
+    recs = [r[3] for r in t[2] if r[2] == 0x20008050]
+    ids = [l.Id for l in m.Layers]
+    if len(recs) != len(ids) or len(set(ids)) != len(ids): return 'layer table has %d records for %d distinct of %d layers (duplicate layer id)' % (len(recs), len(set(ids)), len(ids))
+    hits = [sum(1 for i in ids if i.bytes_le in r) for r in recs]
+    if any(sum(1 for r in recs if i.bytes_le in r) != 1 for i in ids): return 'a layer id is missing from the layer records or sits in two (duplicate or renumbered id)'
+    if any(h != 1 for h in hits): return 'a layer record does not carry exactly one known layer id (duplicate or renumbered id)'
+    for l in m.Layers:
+        if str(l.ParentLayerId) != '00000000-0000-0000-0000-000000000000' and l.ParentLayerId not in ids: return 'layer parent id points to no layer'
+    return None
+
 def structure_problem(path):
     """strict walk of an archive >= V5: every top-level chunk and every record of the table chunks must nest exactly, typecodes must be non-zero,
     the table chunk lengths must be consumed exactly and the end-of-file chunk must close the file and state its length. Returns a reason or None.
@@ -543,6 +558,8 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
     before = snapshot(m); ver = m.ArchiveVersion
     if ver >= 50:
         why = structure_problem(path)
+        if why: raise Refused('source file structure is damaged: ' + why)
+        why = layer_id_problem(path, m)
         if why: raise Refused('source file structure is damaged: ' + why)
     lsig = [json.dumps(l.Encode(), sort_keys=True, default=str) for l in m.Layers]
     edit(m)
