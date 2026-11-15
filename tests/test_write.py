@@ -1813,3 +1813,18 @@ def test_extreme_source_mtime_saves_with_exact_backup(tmp_path, t):
     orig = open(f, 'rb').read(); os.utime(f, (t, t))
     write.rename_layer(f, 'Layer 01', 'Zed')
     assert 'Zed' in names(f) and open(f + '.bak', 'rb').read() == orig and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
+
+
+def test_threads_same_file_one_saves_rest_refused(tmp_path):
+    """queue 224: four threads of one process rename the same file: exactly one wins, the others are refused (never two writers), file valid, no leftovers"""
+    import threading
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), f)
+    out = []
+    def go(n):
+        try: write.rename_layer(f, 'Layer 01', n); out.append('saved')
+        except write.Refused: out.append('refused')
+    ts = [threading.Thread(target=go, args=('T%d' % i,)) for i in range(4)]
+    [t.start() for t in ts]; [t.join(100) for t in ts]
+    assert len(out) == 4 and out.count('saved') >= 1 and set(out) <= {'saved', 'refused'}
+    assert sorted(os.listdir(tmp_path)) == sorted(['a.3dm'] + ['a.3dm.bak' + ('' if i == 0 else '.%d' % i) for i in range(out.count('saved'))])
+    assert sum(n.startswith('T') for n in names(f)) == 1
