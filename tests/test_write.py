@@ -1793,3 +1793,14 @@ def test_new_backup_is_always_the_one_restore_picks(tmp_path):
     assert 'Layer 01' in names(max((str(p) for p in tmp_path.iterdir() if p.name.startswith('a.3dm.bak.') and p.name[10:].isdigit()), key=lambda p: int(p.rsplit('.', 1)[1])))
     write.restore_backup(f)
     assert 'Layer 01' in names(f) and 'Zed' not in names(f)
+
+
+def test_relative_odd_path_artifacts_stay_next_to_file(tmp_path):
+    """queue 219: relative path with .. and // from another cwd: backup beside the file, nothing in cwd, no tmp/lock left"""
+    (tmp_path / 'sub').mkdir(); (tmp_path / 'other').mkdir()
+    shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), str(tmp_path / 'sub' / 'a.3dm'))
+    old = os.getcwd(); os.chdir(str(tmp_path / 'other'))
+    try: write.rename_layer('../sub//./../sub/a.3dm', 'Layer 01', 'Zed')
+    finally: os.chdir(old)
+    assert os.listdir(str(tmp_path / 'other')) == [] and sorted(os.listdir(str(tmp_path / 'sub'))) == ['a.3dm', 'a.3dm.bak']
+    assert 'Zed' in names(str(tmp_path / 'sub' / 'a.3dm'))
