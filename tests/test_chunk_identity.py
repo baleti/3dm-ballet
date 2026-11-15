@@ -2,7 +2,7 @@ import glob, os, shutil, struct, pytest
 import rhino3dm as R
 from tm3dballet import write
 D = os.path.join(os.path.dirname(__file__), 'data')
-FILES = sorted(glob.glob(os.path.join(D, 'V[67]*.3dm')))
+FILES = sorted(glob.glob(os.path.join(D, 'V[67]*.3dm')) + glob.glob(os.path.join(D, '..', 'data_ext', '*.3dm')))
 
 def tops(b):
     o = 32; out = []
