@@ -1758,3 +1758,18 @@ def test_odd_lock_contents_never_crash_and_never_damage(content, tmp_path):
     except write.Refused: saved = False
     assert (names(f) == ['N']) == saved and (saved or open(f, 'rb').read() == before)
     assert not saved or not os.path.exists(lk)
+
+
+@pytest.mark.parametrize('old,new', [
+    ('Layer 01', 'Layer 02'),        # duplicate of an existing sibling (209)
+    ('Layer 01', 'layer 02'),        # case-insensitive duplicate
+    ('Layer 01', ''), ('Layer 01', '   '), ('Layer 01', ' x'), ('Layer 01', 'x' * 10000),   # 210
+    ('Layer 01', 'a::b'), ('Layer 01', 'a\x00b'), ('Layer 01', 'a\nb'),
+    ('Nope', 'Fine'), ('Layer 01', 'Layer 01'),   # 211 missing layer, 212 no-op rename
+])
+def test_rename_refusals_leave_file_byte_identical(tmp_path, old, new):
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), f)
+    before = open(f, 'rb').read()
+    with pytest.raises(write.Refused): write.rename_layer(f, old, new)
+    assert open(f, 'rb').read() == before
+    assert sorted(os.listdir(tmp_path)) == ['a.3dm']   # no tmp, lock or backup left behind
