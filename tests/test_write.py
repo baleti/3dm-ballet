@@ -1828,3 +1828,11 @@ def test_threads_same_file_one_saves_rest_refused(tmp_path):
     assert len(out) == 4 and out.count('saved') >= 1 and set(out) <= {'saved', 'refused'}
     assert sorted(os.listdir(tmp_path)) == sorted(['a.3dm'] + ['a.3dm.bak' + ('' if i == 0 else '.%d' % i) for i in range(out.count('saved'))])
     assert sum(n.startswith('T') for n in names(f)) == 1
+
+
+def test_restore_when_original_was_deleted(tmp_path):
+    """queue 225: only FILE.bak remains: restore recreates FILE byte-identical to the pre-save source"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), f)
+    orig = open(f, 'rb').read(); write.rename_layer(f, 'Layer 01', 'Zed'); os.remove(f)
+    write.restore_backup(f)
+    assert open(f, 'rb').read() == orig and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
