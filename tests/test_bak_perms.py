@@ -23,3 +23,11 @@ def test_readonly_source_file(tmp_path):
     try: write.rename_layer(p, 'brep', 'Renamed')
     except write.Refused: assert open(p, 'rb').read() == orig; assert sorted(os.listdir(tmp_path)) == ['a.3dm']; return
     assert os.stat(p).st_mode & 0o777 == 0o444 and open(p + '.bak', 'rb').read() == orig   # saved: mode kept, backup exact
+
+@pytest.mark.skipif(os.name != 'posix', reason='modes')
+@pytest.mark.parametrize('mode', [0o600, 0o640, 0o664, 0o755])
+def test_mode_preserved_on_file_and_backup_readable(mode, tmp_path):
+    p = str(tmp_path / 'a.3dm'); shutil.copy(SRC, p); os.chmod(p, mode); orig = open(p, 'rb').read()
+    write.rename_layer(p, 'brep', 'Renamed')
+    assert os.stat(p).st_mode & 0o777 == mode and open(p + '.bak', 'rb').read() == orig
+    assert os.stat(p + '.bak').st_mode & 0o777 == mode      # backup carries the source mode, never more open
