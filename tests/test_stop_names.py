@@ -37,3 +37,15 @@ def test_case_twin_in_same_dir_keeps_both_backups_separate(tmp_path):
     write.rename_layer(a, 'brep', 'One'); write.rename_layer(b, 'brep', 'Two')
     assert R.File3dm.Read(a).Layers[0].Name == 'One' and R.File3dm.Read(b).Layers[0].Name == 'Two'
     assert open(a + '.bak', 'rb').read() == open(b + '.bak', 'rb').read() == open(SRC, 'rb').read()
+
+@pytest.mark.skipif(not os.path.isdir('/dev/shm'), reason='no /dev/shm')
+def test_tmpdir_on_other_filesystem_is_irrelevant(tmp_path, monkeypatch):
+    """Temp file must live beside the target (same fs, atomic rename), whatever TMPDIR says."""
+    import tempfile
+    other = tempfile.mkdtemp(dir='/dev/shm'); monkeypatch.setenv('TMPDIR', other); monkeypatch.setattr(tempfile, 'tempdir', None)
+    try:
+        d = tmp_path / 'proj'; d.mkdir(); p = str(d / 'a.3dm'); shutil.copy(SRC, p)
+        write.rename_layer(p, 'brep', 'Renamed')
+        assert R.File3dm.Read(p).Layers[0].Name == 'Renamed' and os.listdir(other) == []
+        assert sorted(os.listdir(d)) == ['a.3dm', 'a.3dm.bak']
+    finally: shutil.rmtree(other, ignore_errors=True)
