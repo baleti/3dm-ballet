@@ -1804,3 +1804,12 @@ def test_relative_odd_path_artifacts_stay_next_to_file(tmp_path):
     finally: os.chdir(old)
     assert os.listdir(str(tmp_path / 'other')) == [] and sorted(os.listdir(str(tmp_path / 'sub'))) == ['a.3dm', 'a.3dm.bak']
     assert 'Zed' in names(str(tmp_path / 'sub' / 'a.3dm'))
+
+
+@pytest.mark.parametrize('t', [0, -86400 * 365, 2 ** 33])
+def test_extreme_source_mtime_saves_with_exact_backup(tmp_path, t):
+    """queue 220: epoch, pre-1970 and far-future mtimes do not confuse lock/stale/changed-source checks"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), f)
+    orig = open(f, 'rb').read(); os.utime(f, (t, t))
+    write.rename_layer(f, 'Layer 01', 'Zed')
+    assert 'Zed' in names(f) and open(f + '.bak', 'rb').read() == orig and sorted(os.listdir(tmp_path)) == ['a.3dm', 'a.3dm.bak']
