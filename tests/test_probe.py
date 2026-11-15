@@ -123,3 +123,13 @@ def test_memory_cap_applied_to_probe_child(tmp_path, monkeypatch):
     monkeypatch.setattr(probe, 'MEM_LIMIT', 16 << 20)   # far too small for python+rhino3dm: child must die, probe must refuse
     with pytest.raises(probe.Unreadable): probe.probe(str(f))
     monkeypatch.undo(); probe._OK.clear(); probe.probe(str(f))
+
+
+def test_dangling_and_looping_symlink_refused_nothing_created(tmp_path):
+    if os.name == 'nt': pytest.skip('posix symlinks')
+    from tm3dballet import write
+    os.symlink(str(tmp_path / 'nowhere.3dm'), str(tmp_path / 'dang.3dm'))
+    os.symlink(str(tmp_path / 'l2.3dm'), str(tmp_path / 'l1.3dm')); os.symlink(str(tmp_path / 'l1.3dm'), str(tmp_path / 'l2.3dm'))
+    for n in ('dang.3dm', 'l1.3dm'):
+        with pytest.raises(write.Refused): write.rename_layer(str(tmp_path / n), 'a', 'b')
+    assert sorted(os.listdir(tmp_path)) == ['dang.3dm', 'l1.3dm', 'l2.3dm']
