@@ -397,9 +397,12 @@ def layer_id_problem(path, m):
     import collections
     parents = collections.Counter(str(l.ParentLayerId) for l in m.Layers)
     # a layer id sits in its own record and in the record of each direct child (parent link)
-    raw = [i.bytes_le for i in ids]; seen = collections.Counter(); per_rec = []
+    raw = {}
+    for k, i in enumerate(ids): raw.setdefault(i.bytes_le, []).append(k)   # ids are distinct here, so one k each
+    seen = collections.Counter(); per_rec = []
     for r in recs:
-        h = [k for k, rb in enumerate(raw) if rb in r]; per_rec.append(len(h)); seen.update(h)
+        # every 16-byte window of the record looked up in a dict: same result as testing each id with `in`, but linear in record size
+        h = sorted({k for o in range(len(r) - 15) for k in raw.get(bytes(r[o:o + 16]), ())}); per_rec.append(len(h)); seen.update(h)
     if any(seen[k] != 1 + parents[str(ids[k])] for k in range(len(ids))): return 'a layer id is missing from the layer records or sits in two (duplicate or renumbered id)'
     if any(h not in (1, 2) for h in per_rec): return 'a layer record does not carry its own layer id (duplicate or renumbered id)'
     idset = set(str(i) for i in ids)
