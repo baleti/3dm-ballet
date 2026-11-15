@@ -410,6 +410,25 @@ def layer_id_problem(path, m):
         if str(l.ParentLayerId) != '00000000-0000-0000-0000-000000000000' and str(l.ParentLayerId) not in idset: return 'layer parent id points to no layer'
     return None
 
+def layer_record_growth_problem(src, out, m0, m2):
+    """a re-encoded layer record may differ from the source record only through the changed name(s) (UTF-16, 2 bytes per unit) plus library
+    re-encoding growth (1 byte on V6/V7, up to ~71 on V8 samples). A record that ends up SMALLER than the name change explains carried data the
+    library does not know (trailing or plug-in data) and dropped it silently. Returns a reason or None."""
+    a, b = _table_records(open(src, 'rb').read(), 0x10000011), _table_records(open(out, 'rb').read(), 0x10000011)
+    if a is None or b is None: return None
+    ra = [r for r in a[2] if r[2] == 0x20008050]; rb = [r for r in b[2] if r[2] == 0x20008050]
+    if len(ra) != len(rb): return 'layer record count changed'
+    ch = [(x, y) for x, y in zip(ra, rb) if x[3] != y[3]]
+    if not ch: return None
+    u = lambda n: len(n.encode('utf-16-le')) // 2
+    m = R.File3dm.Read(src)   # the model object passed to edit() is mutated in place, so read the source names afresh
+    if m is None: return 'source unreadable'
+    na = {str(l.Id): l.Name for l in m.Layers}; nb = {str(l.Id): l.Name for l in m2.Layers}
+    expect = 2 * sum(u(nb[k]) - u(na[k]) for k in na if k in nb)
+    grow = sum(len(y[3]) - len(x[3]) for x, y in ch) - expect
+    if not 0 <= grow <= 256 * len(ch): return 'layer record is %d bytes %s than the name change explains (data the library does not reproduce was dropped or invented); refused' % (abs(grow), 'smaller' if grow < 0 else 'larger')
+    return None
+
 def structure_problem(path):
     """strict walk of an archive >= V5: every top-level chunk and every record of the table chunks must nest exactly, typecodes must be non-zero,
     the table chunk lengths must be consumed exactly and the end-of-file chunk must close the file and state its length. Returns a reason or None.
@@ -639,6 +658,8 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
             lost = census_loss(census(path), census(tmp))
             lost = lost or ['object-record ' + x for x in census_loss(object_census(path), object_census(tmp))]
             if lost: raise Refused('output has fewer table records than the source: %s' % lost[:4])
+            why = layer_record_growth_problem(path, tmp, m, m2)
+            if why: raise Refused(why)
             if not any(d.split()[0] in ('units', 'extra', 'header') for d in diff(before, after)) and not allow_settings:
                 p0, p1 = stable_payloads(path), stable_payloads(tmp)
                 bad = sorted('%s/%s' % k for k in p0 if p1.get(k) != p0[k])

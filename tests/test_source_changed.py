@@ -8,7 +8,7 @@ def _run(tmp_path, mutate, monkeypatch):
     def hooked(a, b):
         monkeypatch.setattr(write, 'diff', real); mutate(p); return real(a, b)
     monkeypatch.setattr(write, 'diff', hooked)
-    with pytest.raises(write.Refused, match='source changed|changed by the save|not readable|damaged'):
+    with pytest.raises(write.Refused, match='source changed|changed by the save|not readable|damaged|layer record'):
         write.rename_layer(p, 'brep', 'Renamed')
     return p
 
