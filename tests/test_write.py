@@ -1773,3 +1773,13 @@ def test_rename_refusals_leave_file_byte_identical(tmp_path, old, new):
     with pytest.raises(write.Refused): write.rename_layer(f, old, new)
     assert open(f, 'rb').read() == before
     assert sorted(os.listdir(tmp_path)) == ['a.3dm']   # no tmp, lock or backup left behind
+
+
+@pytest.mark.parametrize('new', ['Layer \U0001F600', 'Café', 'שלום', 'a​b', 'a﻿b', '한글', 'x y', '‮evil', '\U0010ffff'])
+def test_rename_unicode_names_exact_or_refused(tmp_path, new):
+    """queue 217: any accepted name reads back exactly; anything the library would alter is refused with the source intact"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), f)
+    before = open(f, 'rb').read()
+    try: write.rename_layer(f, 'Layer 01', new)
+    except write.Refused: assert open(f, 'rb').read() == before; return
+    assert new in names(f) and 'Layer 01' not in names(f)
