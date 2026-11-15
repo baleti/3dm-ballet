@@ -94,3 +94,4 @@ Stale locks: a lock whose pid no longer exists (posix) is cleared at once; other
 - RLIMIT_FSIZE below the output size: refused, original intact. ulimit -v 1.5 GB and 4 GB: 45 MB file saves.
 - Random bit flips (60 on a V7 sample): 57 refused, 3 saved with backup equal to the damaged source, 0 damaged. Inserted bytes can make the library reader hang; the 30 s probe timeout refuses those files safely.
 - 100-deep layer chain, V5/V6 samples (20 of 21 saved, 1 refused), V8 samples, FIFO/directory sources: all safe.
+- 218: a new backup always gets a number above every existing FILE.bak.N (stray ones included), so restore-backup picks it.

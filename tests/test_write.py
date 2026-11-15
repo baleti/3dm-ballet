@@ -1702,7 +1702,7 @@ def test_restore_picks_numerically_newest_backup_not_lexicographic(tmp_path):
     for suffix, name in (('.bak', 'B0'), ('.bak.2', 'B2'), ('.bak.10', 'B10')):
         shutil.copy(src, f + suffix); m = R.File3dm.Read(f + suffix); m.Layers[0].Name = name; m.Write(f + suffix, 7)
     write.restore_backup(f)
-    assert names(f) == ['B10'] and names(f + '.bak.1') == ['brep']   # kept under the first free name
+    assert names(f) == ['B10'] and names(f + '.bak.11') == ['brep']   # kept under a name above every existing backup (queue 218)
 
 
 def test_installed_mismatch_without_backup_reports_clearly(tmp_path, monkeypatch):
@@ -1783,3 +1783,13 @@ def test_rename_unicode_names_exact_or_refused(tmp_path, new):
     try: write.rename_layer(f, 'Layer 01', new)
     except write.Refused: assert open(f, 'rb').read() == before; return
     assert new in names(f) and 'Layer 01' not in names(f)
+
+
+def test_new_backup_is_always_the_one_restore_picks(tmp_path):
+    """queue 218: stray numbered backups (huge N) must not shadow the backup a new save makes"""
+    f = str(tmp_path / 'a.3dm'); shutil.copy(os.path.join(D, '..', 'data_ext', 'rh_AllMeshModifiers.3dm'), f)
+    for s in ('99999999999999999999', 'x', '007', ''): open('%s.bak.%s' % (f, s), 'w').write('junk')
+    write.rename_layer(f, 'Layer 01', 'Zed')
+    assert 'Layer 01' in names(max((str(p) for p in tmp_path.iterdir() if p.name.startswith('a.3dm.bak.') and p.name[10:].isdigit()), key=lambda p: int(p.rsplit('.', 1)[1])))
+    write.restore_backup(f)
+    assert 'Layer 01' in names(f) and 'Zed' not in names(f)

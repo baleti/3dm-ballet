@@ -660,8 +660,7 @@ def _edit_file(path, edit, expect, backup=True, allow_settings=False, allow_obje
         if backup:
             made = False
             try:
-                bak = path + '.bak'; k = 0
-                while os.path.lexists(bak): k += 1; bak = '%s.bak.%d' % (path, k)   # never overwrite an earlier backup
+                bak = next_backup_name(path)   # never overwrite an earlier backup; always above every existing number so restore picks it
                 made = True; shutil.copy2(path, bak)
                 if os.path.getsize(bak) != os.path.getsize(path): raise OSError('backup size mismatch')
                 if hashlib.sha256(open(bak, 'rb').read()).hexdigest() != sig0[2]: raise OSError('backup content differs from the source')
@@ -709,6 +708,19 @@ def rename_layer(path, old, new):
     return edit_file(path, edit, lambda ds: ds == ['layers differs'])
 
 
+def next_backup_name(path):
+    """FILE.bak if free and no numbered backup exists, else FILE.bak.N with N above every existing number (also stray ones), so the newest
+    backup is always the one restore-backup picks."""
+    import re
+    d, base = os.path.split(path); d = d or '.'
+    pat = re.compile(re.escape(base) + r'\.bak(?:\.(\d+))?$')
+    nums = [int(m.group(1) or 0) for n in os.listdir(d) for m in [pat.match(n)] if m]
+    if not nums and not os.path.lexists(path + '.bak'): return path + '.bak'
+    k = max(nums + [0]) + 1
+    while os.path.lexists('%s.bak.%d' % (path, k)): k += 1
+    return '%s.bak.%d' % (path, k)
+
+
 def restore_backup(path):
     """put the newest backup (FILE.bak.N with the highest N, else FILE.bak) back as FILE, atomically. The file being replaced is first
     kept as a new backup, so a restore can itself be undone. The backup must pass the same structure and probe checks as a source."""
@@ -737,8 +749,7 @@ def restore_backup(path):
             except OSError as e: raise Refused('cannot prepare restore, file untouched: %s' % e)
             keep = None
             if os.path.exists(path):
-                keep = path + '.bak'; k = 0
-                while os.path.lexists(keep): k += 1; keep = '%s.bak.%d' % (path, k)
+                keep = next_backup_name(path)
                 try: shutil.copy2(path, keep)
                 except OSError as e:
                     if os.path.lexists(keep): os.remove(keep)
